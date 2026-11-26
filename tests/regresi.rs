@@ -1244,6 +1244,70 @@ fungsi utama() -> bil { kembali 0 }
 }
 
 #[test]
+fn bukti_kesamaan_pecah_dan_irisan_bersarang_dilewati() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-kesamaan-tak-didukung");
+    let f = tulis(
+        &d,
+        "pecah.ns",
+        r#"
+fungsi uji() -> bil
+    jamin [1.0] == [2.0]
+{
+    kembali 0
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("belum dimodelkan"), "{gabung}");
+
+    let f = tulis(
+        &d,
+        "bersarang.ns",
+        r#"
+fungsi uji(a: [[bil]]) -> bil
+    perlu panjang(a) >= 2
+    jamin a[0] == a[1]
+{
+    kembali 0
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("belum dimodelkan"), "{gabung}");
+}
+
+#[test]
+fn bukti_kesamaan_larik_besar_memakai_forall() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-kesamaan-larik-besar");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(a: [bil; 300]) -> bil
+    jamin a == a
+{
+    kembali 0
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
 fn bukti_jamin_koleksi_tidak_diasumsikan_di_pemanggil() {
     if !ada_z3() {
         return;

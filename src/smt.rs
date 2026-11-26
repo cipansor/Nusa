@@ -296,7 +296,24 @@ impl<'a> Vc<'a> {
         }
     }
 
-    fn sama_koleksi(&self, x: &Nl, y: &Nl) -> String {
+    fn sama_koleksi(&self, x: &Nl, y: &Nl) -> Option<String> {
+        let elemen_x = elemen(&x.ty);
+        let elemen_y = elemen(&y.ty);
+        let skalar = |t: &Ty| {
+            matches!(
+                t,
+                Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf | Ty::Log
+            )
+        };
+        if !skalar(&elemen_x) || !skalar(&elemen_y) {
+            return None;
+        }
+        if matches!(x.ty, Ty::Irisan(_)) && x.panjang.is_none() {
+            return None;
+        }
+        if matches!(y.ty, Ty::Irisan(_)) && y.panjang.is_none() {
+            return None;
+        }
         let lx = self.panjang_nl(x);
         let ly = self.panjang_nl(y);
         let len = if lx == ly {
@@ -325,11 +342,11 @@ impl<'a> Vc<'a> {
                 lx, x.term, y.term
             ),
         };
-        if len == "true" {
+        Some(if len == "true" {
             elems
         } else {
             format!("(and {} {})", len, elems)
-        }
+        })
     }
 
     fn tugas(&mut self, deskripsi: String, baris: u32, harus: String, asumsi: &[String]) {
@@ -948,7 +965,16 @@ impl<'a> Vc<'a> {
                     && matches!(x.ty, Ty::Array(_, _) | Ty::Irisan(_))
                     && matches!(y.ty, Ty::Array(_, _) | Ty::Irisan(_))
                 {
-                    let eq = self.sama_koleksi(&x, &y);
+                    let Some(eq) = self.sama_koleksi(&x, &y) else {
+                        self.lewat = Some(
+                            "kesamaan koleksi bersarang atau elemen pecah belum dimodelkan".into(),
+                        );
+                        return Nl {
+                            term: "false".into(),
+                            ty: Ty::Log,
+                            panjang: None,
+                        };
+                    };
                     return Nl {
                         term: if *op == BinOp::TidakSama {
                             format!("(not {})", eq)
