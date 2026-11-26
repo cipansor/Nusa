@@ -350,11 +350,26 @@ impl<'a> Vc<'a> {
     }
 
     fn blok(&mut self, b: &Block, j: &mut Jalur) {
+        let nama = nama_ikat(b);
+        let lama: Vec<(String, Option<Nl>)> = nama
+            .iter()
+            .map(|n| (n.clone(), j.env.get(n).cloned()))
+            .collect();
         for s in &b.stmts {
             if !j.hidup {
-                return;
+                break;
             }
             self.stmt(s, j);
+        }
+        for (n, v) in lama {
+            match v {
+                Some(v) => {
+                    j.env.insert(n, v);
+                }
+                None => {
+                    j.env.remove(&n);
+                }
+            }
         }
     }
 
@@ -457,9 +472,7 @@ impl<'a> Vc<'a> {
                 }
                 let diubah = ditugaskan(badan);
                 let mut h = j.clone();
-                for nama in &diubah {
-                    self.havok(&mut h, nama);
-                }
+                self.havok_diubah(&mut h, &diubah, None);
                 let lama_spek = self.spek_mulai();
                 let inv_h: Vec<String> =
                     invarian.iter().map(|e| self.eks(e, &mut h).term).collect();
@@ -545,11 +558,8 @@ impl<'a> Vc<'a> {
                 // karena `i < akhir` bersama `i >= akhir` membuat asumsi palsu.
                 let mut keluar_ = j.clone();
                 keluar_.pc.push(format!("(= {} {})", akhir, b.term));
-                for nama_diubah in ditugaskan(badan) {
-                    if nama_diubah != *nama {
-                        self.havok(&mut keluar_, &nama_diubah);
-                    }
-                }
+                let diubah = ditugaskan(badan);
+                self.havok_diubah(&mut keluar_, &diubah, Some(nama));
                 // Simbol keluar privat: jangan menimpa binding luar yang
                 // mungkin dibayangi oleh variabel loop.
                 let i_keluar = self.segar(nama, &Ty::Bil);
@@ -583,11 +593,8 @@ impl<'a> Vc<'a> {
                 // di-havok; wadah tidak boleh berubah karena sema meminjamnya
                 // selama iterasi.
                 let mut keluar_ = j.clone();
-                for nama_diubah in ditugaskan(badan) {
-                    if nama_diubah != *nama {
-                        self.havok(&mut keluar_, &nama_diubah);
-                    }
-                }
+                let diubah = ditugaskan(badan);
+                self.havok_diubah(&mut keluar_, &diubah, Some(nama));
                 *j = keluar_;
             }
             Stmt::Kembali(nilai, _) => {
@@ -671,6 +678,35 @@ impl<'a> Vc<'a> {
                 panjang,
             },
         );
+    }
+
+    /// Elemen yang berubah tidak boleh mengubah panjang wadah.
+    fn havok_elemen(&mut self, j: &mut Jalur, nama: &str) {
+        let Some(lama) = j.env.get(nama).cloned() else {
+            return;
+        };
+        let baru = self.segar(nama, &lama.ty);
+        j.env.insert(
+            nama.to_string(),
+            Nl {
+                term: baru,
+                ty: lama.ty,
+                panjang: lama.panjang,
+            },
+        );
+    }
+
+    fn havok_diubah(&mut self, j: &mut Jalur, d: &Diubah, kecuali: Option<&str>) {
+        for n in &d.seluruh {
+            if Some(n.as_str()) != kecuali {
+                self.havok(j, n);
+            }
+        }
+        for n in &d.elemen {
+            if Some(n.as_str()) != kecuali && !d.seluruh.contains(n) {
+                self.havok_elemen(j, n);
+            }
+        }
     }
 
     fn gabung(&mut self, k: &str, a: Jalur, b: Jalur) -> Jalur {
@@ -1179,41 +1215,79 @@ fn bagi_t(a: &str, b: &str) -> String {
     )
 }
 
-fn ditugaskan(b: &Block) -> HashSet<String> {
-    let mut s = HashSet::new();
-    kumpul_tugas(b, &mut s);
+#[derive(Default)]
+struct Diubah {
+    seluruh: HashSet<String>,
+    elemen: HashSet<String>,
+}
+
+fn ditugaskan(b: &Block) -> Diubah {
+    let mut s = Diubah::default();
+    let mut bayang = HashSet::new();
+    kumpul_tugas(b, &mut s, &mut bayang);
     s
 }
 
-fn kumpul_tugas(b: &Block, s: &mut HashSet<String>) {
+fn akar_tugas(e: &Expr) -> Option<&str> {
+    match &e.kind {
+        ExprKind::Var(n) => Some(n),
+        ExprKind::Indeks { dasar, .. } | ExprKind::Medan { dasar, .. } => akar_tugas(dasar),
+        _ => None,
+    }
+}
+
+fn kumpul_tugas(b: &Block, s: &mut Diubah, bayang: &mut HashSet<String>) {
     for st in &b.stmts {
         match st {
-            Stmt::Tugas { target, .. } => match &target.kind {
-                ExprKind::Var(n) => {
-                    s.insert(n.clone());
-                }
-                ExprKind::Indeks { dasar, .. } => {
-                    if let ExprKind::Var(n) = &dasar.kind {
-                        s.insert(n.clone());
+            Stmt::Ikat { nama, .. } => {
+                bayang.insert(nama.clone());
+            }
+            Stmt::Tugas { target, .. } => {
+                if let Some(n) = akar_tugas(target) {
+                    if !bayang.contains(n) {
+                        match target.kind {
+                            ExprKind::Var(_) => {
+                                s.seluruh.insert(n.to_string());
+                            }
+                            ExprKind::Indeks { .. } => {
+                                s.elemen.insert(n.to_string());
+                            }
+                            _ => {}
+                        }
                     }
                 }
-                _ => {}
-            },
+            }
             Stmt::Jika { maka, lain, .. } => {
-                kumpul_tugas(maka, s);
+                let mut bm = bayang.clone();
+                kumpul_tugas(maka, s, &mut bm);
                 if let Some(l) = lain {
-                    kumpul_tugas(l, s);
+                    let mut bl = bayang.clone();
+                    kumpul_tugas(l, s, &mut bl);
                 }
             }
             Stmt::Selama { badan, .. }
             | Stmt::UntukRentang { badan, .. }
             | Stmt::UntukIsi { badan, .. } => {
-                kumpul_tugas(badan, s);
+                let mut bb = bayang.clone();
+                kumpul_tugas(badan, s, &mut bb);
             }
-            Stmt::Blok(b) => kumpul_tugas(b, s),
+            Stmt::Blok(b) | Stmt::Takaman(b) => {
+                let mut bb = bayang.clone();
+                kumpul_tugas(b, s, &mut bb);
+            }
             _ => {}
         }
     }
+}
+
+fn nama_ikat(b: &Block) -> Vec<String> {
+    b.stmts
+        .iter()
+        .filter_map(|st| match st {
+            Stmt::Ikat { nama, .. } => Some(nama.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn ada_lompat(b: &Block) -> bool {

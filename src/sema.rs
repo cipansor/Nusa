@@ -639,17 +639,18 @@ impl<'a> Pemeriksa<'a> {
     fn perlu_tempat(&mut self, e: &Expr, konteks: &str) -> Option<Tempat> {
         let t = self.tempat_tugas(e, konteks);
         if t.is_some() {
-            self.periksa_indeks_tempat(e);
+            self.periksa_indeks_tempat(e, true);
         }
         t
     }
 
     /// Tempat yang boleh ditulis harus mengevaluasi indeksnya, supaya
     /// metadata panggilan (dan pemindahan argumen) tidak hilang.
-    fn periksa_indeks_tempat(&mut self, e: &Expr) {
+    fn periksa_indeks_tempat(&mut self, e: &Expr, cek_tujuan: bool) {
         match &e.kind {
             ExprKind::Indeks { dasar, indeks } => {
-                self.periksa_indeks_tempat(dasar);
+                self.periksa_indeks_tempat(dasar, false);
+                let sebelum = if cek_tujuan { self.tempat(e) } else { None };
                 let ti = self.eks(indeks, Some(&Ty::Bil));
                 if !self.bulat(&ti) {
                     self.galat(
@@ -658,8 +659,29 @@ impl<'a> Pemeriksa<'a> {
                         "E0335",
                     );
                 }
+                if let Some(t) = sebelum {
+                    if let Some(p) = self.cek_tempat_tujuan_terpindah(&t) {
+                        self.galat(
+                            e.span,
+                            format!("tempat tujuan `{}` tidak lagi hidup: {}", t.akar, p),
+                            "E0320",
+                        );
+                    }
+                }
             }
-            ExprKind::Medan { dasar, .. } => self.periksa_indeks_tempat(dasar),
+            ExprKind::Medan { dasar, .. } => {
+                let sebelum = if cek_tujuan { self.tempat(e) } else { None };
+                self.periksa_indeks_tempat(dasar, false);
+                if let Some(t) = sebelum {
+                    if let Some(p) = self.cek_tempat_tujuan_terpindah(&t) {
+                        self.galat(
+                            e.span,
+                            format!("tempat tujuan `{}` tidak lagi hidup: {}", t.akar, p),
+                            "E0320",
+                        );
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -903,7 +925,7 @@ impl<'a> Pemeriksa<'a> {
                 }
                 if let Some(t) = &tempat {
                     if !matches!(target.kind, ExprKind::Var(_)) {
-                        self.periksa_indeks_tempat(target);
+                        self.periksa_indeks_tempat(target, false);
                         self.periksa_tempat_tujuan(t, *span);
                     }
                     self.bersihkan_pindah(&t.akar, &t.jalur);

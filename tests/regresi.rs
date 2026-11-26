@@ -813,7 +813,7 @@ fungsi utama() -> bil {
     ub d: Daftar<bil> = daftar();
     d.tambah(3);
     a[indeks(d)] = d.panjang();
-    cetak(a[0]);
+    cetak(a[1]);
     kembali 0
 }
 "#;
@@ -858,7 +858,8 @@ fungsi utama() -> bil {
     assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
     let instrumentasi = fs::read_to_string(&hasil).unwrap();
     assert!(
-        instrumentasi.contains("__asan_report_load") || instrumentasi.contains("__asan_load"),
+        instrumentasi.contains("call void @__asan_report_load")
+            || instrumentasi.contains("call void @__asan_load"),
         "akses heap tidak diinstrumentasi: {}",
         instrumentasi
     );
@@ -904,6 +905,71 @@ fungsi utama() -> bil {
         "{}",
         teks_galat(&o)
     );
+}
+
+#[test]
+fn pinjaman_tempat_dengan_indeks_yang_memindahkan_ditolak() {
+    periksa(
+        "pinjam-indeks-memindahkan",
+        r#"
+fungsi indeks(d: Daftar<bil>) -> bil { kembali 0 }
+fungsi pakai(x: &bil) { cetak("ok") }
+fungsi utama() -> bil {
+    ub a: Daftar<bil> = daftar();
+    a.tambah(1);
+    pakai(&a[indeks(a)]);
+    kembali 0
+}
+"#,
+        "E0320",
+    );
+}
+
+#[test]
+fn bukti_penulisan_elemen_mempertahankan_panjang_irisan() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-elemen-panjang");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub a: [bil] = [10, 20];
+    untuk i dalam 0..1 { a[0] = 5 }
+    tegas a[1] == a[1]
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn bukti_bayang_lokal_memulihkan_irisan_luar() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-bayang-irisan");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub a: [bil] = [10, 20];
+    {
+        ub a: [bil; 1] = [0];
+        a[0] = 1;
+    }
+    tegas a[1] == a[1]
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
 }
 
 #[test]
