@@ -1,5 +1,7 @@
 # Nusa
 
+[![CI](https://github.com/cipansor/Nusa/actions/workflows/ci.yml/badge.svg)](https://github.com/cipansor/Nusa/actions/workflows/ci.yml)
+
 **Bahasa pemrograman sistem berbahasa Indonesia dengan backend LLVM —
 bisa dikompilasi *dan* ditafsirkan, dari sumber `berkas.ns` yang sama.**
 
@@ -505,6 +507,10 @@ dibangkitkan, tetap cepat karena `llc -O2`.
 cargo test                 # 55 uji regresi Rust (penafsir + biner bila LLVM ada)
 ./uji/jalankan.sh          # uji ujung-ke-ujung + kesetaraan dua mesin
 ```
+
+CI di `.github/workflows/ci.yml` menjalankan format, Clippy, uji di Linux dan
+macOS, verifikasi Z3, cakupan, audit dependensi, ShellCheck, dokumentasi, dan
+artifact release.
 
 ```
 test result: ok. 55 passed; 0 failed
