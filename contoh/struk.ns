@@ -1,0 +1,27 @@
+// Struk, enumerasi, medan, dan perbandingan.
+struk Titik { x: bil, y: bil }
+
+enumerasi Arah { Utara, Selatan, Timur, Barat }
+
+fungsi geser(t: Titik, arah: Arah) -> Titik {
+    jika arah == Arah::Utara {
+        kembali Titik { x: t.x, y: t.y + 1 }
+    }
+    jika arah == Arah::Selatan {
+        kembali Titik { x: t.x, y: t.y - 1 }
+    }
+    jika arah == Arah::Timur {
+        kembali Titik { x: t.x + 1, y: t.y }
+    }
+    kembali Titik { x: t.x - 1, y: t.y }
+}
+
+fungsi utama() -> bil {
+    ubah t: Titik = Titik { x: 0, y: 0 };
+    t = geser(t, Arah::Utara);
+    t = geser(t, Arah::Timur);
+    cetak("posisi = ", t.x, ", ", t.y)
+    cetak("sama?  = ", t == Titik { x: 1, y: 1 })
+    cetak("arah   = ", Arah::Timur)
+    kembali 0
+}

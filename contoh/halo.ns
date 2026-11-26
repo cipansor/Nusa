@@ -1,0 +1,5 @@
+// Program pertama: halo dunia.
+fungsi utama() -> bil {
+    cetak("Halo, Nusantara!")
+    kembali 0
+}

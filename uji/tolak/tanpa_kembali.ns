@@ -1,0 +1,8 @@
+// Harus DITOLAK: tidak semua jalur mengembalikan nilai.
+fungsi f(n: bil) -> bil {
+    jika n > 0 {
+        kembali 1
+    }
+}
+
+fungsi utama() -> bil { kembali f(1) }

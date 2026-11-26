@@ -1,0 +1,7 @@
+faktorial(0) = 1
+faktorial(1) = 1
+faktorial(2) = 2
+faktorial(3) = 6
+faktorial(4) = 24
+faktorial(5) = 120
+faktorial(6) = 720

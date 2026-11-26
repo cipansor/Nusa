@@ -1,0 +1,6 @@
+// Harus DITOLAK: penjumlahan tipe berbeda.
+fungsi utama() -> bil {
+    tetap s: teks = "abc";
+    cetak(s + 1)        // E0327
+    kembali 0
+}

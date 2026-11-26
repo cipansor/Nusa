@@ -1,0 +1,7 @@
+// Harus DITOLAK: pinjaman eksklusif aktif saat variabel dipakai.
+fungsi utama() -> bil {
+    ubah d: Daftar<bil> = daftar();
+    tetap p = &ubah d
+    tambah(&ubah d, 1)   // E0333/E0307
+    kembali 0
+}

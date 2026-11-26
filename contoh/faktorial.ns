@@ -1,0 +1,20 @@
+// Rekursi + kontrak. Perkalian `n * h` TIDAK dapat dibuktikan aman dari
+// kontrak ini (butuh spesifikasi fungsional/induksi), jadi kompiler tetap
+// menyisipkan penjaga runtime: contoh jujur dari model gagal-aman.
+fungsi faktorial(n: bil) -> bil
+    perlu n >= 0
+    perlu n <= 12
+    jamin hasil >= 1
+{
+    jika n == 0 {
+        kembali 1
+    }
+    kembali n * faktorial(n - 1)
+}
+
+fungsi utama() -> bil {
+    untuk i dalam 0..=6 {
+        cetak("faktorial(", i, ") = ", faktorial(i))
+    }
+    kembali 0
+}

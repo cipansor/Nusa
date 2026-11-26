@@ -1,0 +1,3 @@
+cari 10 -> 4
+cari 7  -> -1
+terurut  -> benar

@@ -1,0 +1,21 @@
+struk Titik { x: bil, y: bil }
+enumerasi Warna { Merah, Hijau, Biru }
+
+fungsi utama() -> bil {
+    ubah t: Titik = Titik { x: 3, y: 4 };
+    cetak("medan  = ", t.x, ",", t.y)
+    cetak("sama   = ", t == Titik { x: 3, y: 4 })
+    cetak("warna  = ", Warna::Hijau, " ", Warna::Hijau == Warna::Hijau)
+    cetak("huruf  = ", 'a', " ", 'a' == 'a')
+    tetap u: nat = 7;
+    cetak("nat    = ", u)
+    cetak("pecah  = ", 1.5 * 4.0, " ", 2.0 / 3.0)
+    ubah n: bil = 41;
+    cetak("nilai  = ", n)
+    ubah d: Daftar<bil> = daftar();
+    untuk i dalam 0..5 { tambah(&ubah d, i * i) }
+    cetak("daftar = ", panjang(d), " ", ambil(d, 4))
+    tetap s: teks = "nusa";
+    cetak("teks   = ", s, " ", panjang(s), " ", s[1])
+    kembali 0
+}

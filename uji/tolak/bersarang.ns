@@ -1,0 +1,5 @@
+// Harus DITOLAK: Daftar di dalam Daftar (kepemilikan bersarang belum dimodelkan).
+fungsi utama() -> bil {
+    ubah d: Daftar<Daftar<bil>> = daftar();
+    kembali 0
+}

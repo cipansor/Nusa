@@ -1,0 +1,54 @@
+// Pencarian biner: membuktikan batas indeks, luber, dan kontrak.
+struk Hasil { posisi: bil, ketemu: log }
+
+fungsi cari(a: [bil], kunci: bil) -> bil
+    perlu panjang(a) > 0
+    perlu panjang(a) <= 1000000
+    jamin hasil >= -1
+    jamin hasil < panjang(a)
+{
+    ubah kiri: bil = 0;
+    ubah kanan: bil = panjang(a) - 1;
+    selama kiri <= kanan
+        invarian kiri >= 0
+        invarian kanan < panjang(a)
+        invarian kiri <= kanan + 1
+    {
+        ubah tengah: bil = kiri + (kanan - kiri) / 2;
+        tegas tengah >= 0, "tengah tidak boleh negatif"
+        tegas tengah < panjang(a), "tengah harus di dalam larik"
+        jika a[tengah] == kunci {
+            kembali tengah
+        }
+        jika a[tengah] < kunci {
+            kiri = tengah + 1
+        } selain {
+            kanan = tengah - 1
+        }
+    }
+    kembali -1
+}
+
+fungsi terurut(a: [bil]) -> log
+    perlu panjang(a) >= 1
+{
+    ubah i: bil = 1;
+    selama i < panjang(a)
+        invarian i >= 1
+        invarian i <= panjang(a)
+    {
+        jika a[i] < a[i - 1] {
+            kembali salah
+        }
+        i = i + 1
+    }
+    kembali benar
+}
+
+fungsi utama() -> bil {
+    tetap data: [bil; 8] = [2, 4, 6, 8, 10, 12, 14, 16];
+    cetak("cari 10 -> ", cari(data, 10))
+    cetak("cari 7  -> ", cari(data, 7))
+    cetak("terurut  -> ", terurut(data))
+    kembali 0
+}

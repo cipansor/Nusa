@@ -1,0 +1,12 @@
+// Penjaga runtime: indeks yang tidak dapat dibuktikan aman diperiksa saat jalan.
+fungsi ambil_bebas(a: [bil], i: bil) -> bil {
+    kembali a[i]
+}
+
+fungsi utama() -> bil {
+    tetap a: [bil; 3] = [10, 20, 30];
+    cetak("a[2] = ", ambil_bebas(a, 2))
+    cetak("sekarang indeks 5 ...")
+    cetak("a[5] = ", ambil_bebas(a, 5))
+    kembali 0
+}

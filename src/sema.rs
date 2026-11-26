@@ -1,0 +1,1101 @@
+//! Analisis semantik: keamanan tipe, mutabilitas, kepemilikan (move),
+//! dan peminjaman (borrow). Semua galat diberi kode dan lokasi.
+
+use crate::ast::*;
+use crate::diag::Diagnostik;
+use crate::lex::KATA_KUNCI;
+use std::collections::HashMap;
+
+#[derive(Clone, Debug)]
+pub struct Sig {
+    pub params: Vec<Ty>,
+    pub hasil: Ty,
+}
+
+#[derive(Clone, Debug)]
+pub struct StrukInfo {
+    pub medan: Vec<(String, Ty)>,
+    pub indeks: HashMap<String, usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumInfo {
+    pub varian: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Panggilan {
+    Fungsi(String),
+    Bawaan(String),
+}
+
+pub struct Sema {
+    pub diag: Vec<Diagnostik>,
+    pub tipe: HashMap<u32, Ty>,
+    pub panggil: HashMap<u32, Panggilan>,
+    pub lokal: HashMap<(u32, u32), Ty>,
+    pub elemen_untuk: HashMap<(u32, u32), Ty>,
+    pub struk: HashMap<String, StrukInfo>,
+    pub enumerasi: HashMap<String, EnumInfo>,
+    pub sig: HashMap<String, Sig>,
+    pub baatan: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct Var {
+    ty: Ty,
+    ubah: bool,
+    dipindah: bool,
+    kedalaman: usize,
+}
+
+#[derive(Clone, Debug)]
+struct Pinjaman {
+    ubah: bool,
+    oleh: Option<String>,
+    kedalaman: usize,
+}
+
+#[derive(Clone, Debug)]
+struct Tempat {
+    ty: Ty,
+    ubah: bool,
+    akar: String,
+}
+
+struct FungsiCtx {
+    hasil: Ty,
+    lingkup: Vec<HashMap<String, Var>>,
+    pinjaman: HashMap<String, Vec<Pinjaman>>,
+    jangan_pindah: u32,
+    kedalaman: usize,
+    dalam_selama: u32,
+    dalam_jamin: bool,
+}
+
+pub const BAWAAN: &[&str] = &[
+    "cetak", "tulis", "daftar", "tambah", "panjang", "ambil", "gagal", "sisip",
+];
+
+pub fn periksa(prog: &Prog, berkas: &str) -> Sema {
+    let mut s = Sema {
+        diag: Vec::new(),
+        tipe: HashMap::new(),
+        panggil: HashMap::new(),
+        lokal: HashMap::new(),
+        elemen_untuk: HashMap::new(),
+        struk: HashMap::new(),
+        enumerasi: HashMap::new(),
+        sig: HashMap::new(),
+        baatan: BAWAAN.iter().map(|x| x.to_string()).collect(),
+    };
+    s.daftar_deklarasi(prog, berkas);
+    for f in &prog.fungsi {
+        if f.luar {
+            continue;
+        }
+        s.periksa_fungsi(f, berkas);
+    }
+    s
+}
+
+impl Sema {
+    fn galat(&mut self, berkas: &str, span: Span, pesan: String, kode: &str) {
+        self.diag.push(Diagnostik::galat(berkas, span, pesan, kode));
+    }
+
+    fn daftar_deklarasi(&mut self, prog: &Prog, berkas: &str) {
+        for st in &prog.struk {
+            if self.struk.contains_key(&st.nama) || self.enumerasi.contains_key(&st.nama) {
+                self.galat(berkas, st.span, format!("tipe `{}` dideklarasikan dua kali", st.nama), "E0201");
+            }
+            let mut medan = Vec::new();
+            let mut indeks = HashMap::new();
+            for (i, m) in st.medan.iter().enumerate() {
+                if indeks.contains_key(&m.nama) {
+                    self.galat(berkas, m.span, format!("medan `{}` ganda pada struk `{}`", m.nama, st.nama), "E0202");
+                }
+                if !self.tipe_sah(&m.ty) {
+                    self.galat(berkas, m.span, format!("tipe medan `{}` belum dikenal: `{}`", m.nama, m.ty.sebutan()), "E0203");
+                }
+                if nama_tipe(&m.ty) == Some(st.nama.as_str()) {
+                    self.galat(berkas, m.span, format!("struk `{}` tidak boleh memuat dirinya sendiri (rekursi tak berujung)", st.nama), "E0204");
+                }
+                if mengandung_pinjaman(&m.ty) {
+                    self.galat(berkas, m.span, format!("medan `{}` tidak boleh menyimpan pinjaman pada Nusa v0.1", m.nama), "E0372");
+                }
+                if let Ty::Array(d, _) = &m.ty {
+                    if !self.boleh_salin(d) {
+                        self.galat(berkas, m.span, format!("elemen larik `{}` harus bertipe yang dapat disalin", m.nama), "E0373");
+                    }
+                }
+                indeks.insert(m.nama.clone(), i);
+                medan.push((m.nama.clone(), m.ty.clone()));
+            }
+            self.struk.insert(st.nama.clone(), StrukInfo { medan, indeks });
+        }
+        for e in &prog.enumerasi {
+            if self.enumerasi.contains_key(&e.nama) || self.struk.contains_key(&e.nama) {
+                self.galat(berkas, e.span, format!("tipe `{}` dideklarasikan dua kali", e.nama), "E0201");
+            }
+            if e.varian.is_empty() {
+                self.galat(berkas, e.span, format!("enumerasi `{}` harus punya minimal satu varian", e.nama), "E0205");
+            }
+            let mut unik: Vec<String> = Vec::new();
+            for v in &e.varian {
+                if unik.contains(v) {
+                    self.galat(berkas, e.span, format!("varian `{}` ganda pada enumerasi `{}`", v, e.nama), "E0206");
+                }
+                unik.push(v.clone());
+            }
+            self.enumerasi.insert(e.nama.clone(), EnumInfo { varian: e.varian.clone() });
+        }
+        for f in &prog.fungsi {
+            if KATA_KUNCI.iter().any(|(k, _)| k == &f.nama) {
+                self.galat(berkas, f.span, format!("`{}` adalah kata kunci, tidak boleh menjadi nama fungsi", f.nama), "E0207");
+            }
+            if self.sig.contains_key(&f.nama) {
+                self.galat(berkas, f.span, format!("fungsi `{}` dideklarasikan dua kali", f.nama), "E0208");
+            }
+            if self.baatan.iter().any(|b| b == &f.nama) {
+                self.galat(berkas, f.span, format!("`{}` adalah fungsi bawaan; pilih nama lain", f.nama), "E0209");
+            }
+            for (i, p) in f.params.iter().enumerate() {
+                if !self.tipe_sah(&p.ty) {
+                    self.galat(berkas, p.span, format!("tipe parameter `{}` belum dikenal: `{}`", p.nama, p.ty.sebutan()), "E0203");
+                }
+                if f.params[..i].iter().any(|q| q.nama == p.nama) {
+                    self.galat(berkas, p.span, format!("parameter `{}` ganda", p.nama), "E0210");
+                }
+            }
+            if matches!(f.hasil, Ty::Ref { .. }) {
+                self.galat(berkas, f.span, format!("fungsi `{}` tidak boleh mengembalikan pinjaman pada Nusa v0.1 (hindari referensi menggantung)", f.nama), "E0371");
+            }
+            if !self.tipe_sah(&f.hasil) {
+                self.galat(berkas, f.span, format!("tipe hasil belum dikenal: `{}`", f.hasil.sebutan()), "E0203");
+            }
+            if f.hasil != Ty::Kosong && !f.luar && !selalu_kembali(&f.badan) {
+                self.galat(berkas, f.span, format!("fungsi `{}` bertipe hasil `{}` tetapi tidak semua jalur berakhir dengan `kembali`", f.nama, f.hasil.sebutan()), "E0211");
+            }
+            self.sig.insert(f.nama.clone(), Sig { params: f.params.iter().map(|p| p.ty.clone()).collect(), hasil: f.hasil.clone() });
+        }
+        if !self.sig.contains_key("utama") {
+            self.diag.push(Diagnostik::galat(berkas, Span::baru(1, 1, 1), "program tidak memiliki `fungsi utama()` sebagai titik masuk".into(), "E0212"));
+        } else if let Some(s) = self.sig.get("utama") {
+            if !s.params.is_empty() {
+                self.diag.push(Diagnostik::galat(berkas, Span::baru(1, 1, 1), "`utama` tidak boleh punya parameter".into(), "E0213"));
+            }
+            if !matches!(s.hasil, Ty::Kosong | Ty::Bil) {
+                self.diag.push(Diagnostik::galat(berkas, Span::baru(1, 1, 1), "`utama` harus mengembalikan `bil` (kode keluar) atau `kosong`".into(), "E0214"));
+            }
+        }
+    }
+
+    fn tipe_sah(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Array(d, _) => self.tipe_sah(d) && self.boleh_salin(d) && !self.memuat_heap(d),
+            Ty::Irisan(d) => self.tipe_sah(d) && !self.memuat_heap(d),
+            Ty::Ref { dalam, .. } => self.tipe_sah(dalam),
+            Ty::Daftar(d) => self.tipe_sah(d) && !self.memuat_heap(d),
+            Ty::Nama(n) => self.struk.contains_key(n) || self.enumerasi.contains_key(n),
+            _ => true,
+        }
+    }
+
+    /// Tipe yang memiliki memori heap di dalamnya (butuh pembebasan).
+    fn memuat_heap(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Daftar(_) => true,
+            Ty::Nama(n) => self
+                .struk
+                .get(n)
+                .map(|s| s.medan.iter().any(|(_, m)| self.memuat_heap(m)))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    fn boleh_salin(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Nama(n) => {
+                if let Some(st) = self.struk.get(n) {
+                    st.medan.iter().all(|(_, m)| self.boleh_salin(m))
+                } else {
+                    true
+                }
+            }
+            Ty::Array(d, _) => self.boleh_salin(d),
+            _ => t.boleh_salin(),
+        }
+    }
+
+    fn periksa_fungsi(&mut self, f: &Fungsi, berkas: &str) {
+        let mut ctx = FungsiCtx {
+            hasil: f.hasil.clone(),
+            lingkup: vec![HashMap::new()],
+            pinjaman: HashMap::new(),
+            jangan_pindah: 0,
+            kedalaman: 0,
+            dalam_selama: 0,
+            dalam_jamin: false,
+        };
+        for p in &f.params {
+            ctx.lingkup[0].insert(p.nama.clone(), Var { ty: p.ty.clone(), ubah: p.ty.is_ubah_param(), dipindah: false, kedalaman: 0 });
+        }
+        let mut cek = Pemeriksa { s: self, ctx: &mut ctx, berkas, fungsi: &f.nama };
+        for e in f.perlu.iter() {
+            let t = cek.eks(e, None);
+            if t != Ty::Log {
+                cek.s.galat(berkas, e.span, format!("`perlu` harus bertipe `log`, bukan `{}`", t.sebutan()), "E0300");
+            }
+        }
+        cek.ctx.dalam_jamin = true;
+        for e in f.jamin.iter() {
+            let t = cek.eks(e, Some(&f.hasil));
+            if t != Ty::Log {
+                cek.s.galat(berkas, e.span, format!("`jamin` harus bertipe `log`, bukan `{}`", t.sebutan()), "E0300");
+            }
+        }
+        cek.ctx.dalam_jamin = false;
+        cek.blok(&f.badan);
+        cek.akhir_pernyataan();
+    }
+}
+
+trait UbahParam {
+    fn is_ubah_param(&self) -> bool;
+}
+
+impl UbahParam for Ty {
+    fn is_ubah_param(&self) -> bool {
+        matches!(self, Ty::Ref { ubah: true, .. })
+    }
+}
+
+fn nama_tipe(t: &Ty) -> Option<&str> {
+    match t {
+        Ty::Nama(n) => Some(n),
+        _ => None,
+    }
+}
+
+fn mengandung_pinjaman(t: &Ty) -> bool {
+    match t {
+        Ty::Ref { .. } => true,
+        Ty::Array(d, _) | Ty::Irisan(d) | Ty::Daftar(d) => mengandung_pinjaman(d),
+        _ => false,
+    }
+}
+
+/// Apakah blok selalu berakhir dengan `kembali` (atau berhenti total)?
+pub fn selalu_kembali(b: &Block) -> bool {
+    b.stmts.iter().any(|s| stmt_buntu(s))
+}
+
+fn stmt_buntu(s: &Stmt) -> bool {
+    match s {
+        Stmt::Kembali(..) => true,
+        Stmt::Blok(b) => selalu_kembali(b),
+        Stmt::Jika { maka, lain: Some(l), .. } => selalu_kembali(maka) && selalu_kembali(l),
+        Stmt::Ekspresi(e) => match &e.kind {
+            ExprKind::Panggil { nama, .. } => nama == "gagal",
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+struct Pemeriksa<'a> {
+    s: &'a mut Sema,
+    ctx: &'a mut FungsiCtx,
+    berkas: &'a str,
+    fungsi: &'a str,
+}
+
+impl<'a> Pemeriksa<'a> {
+    fn galat(&mut self, span: Span, pesan: String, kode: &str) {
+        self.s.galat(self.berkas, span, pesan, kode);
+    }
+
+    fn masuk(&mut self) {
+        self.ctx.kedalaman += 1;
+        self.ctx.lingkup.push(HashMap::new());
+    }
+
+    fn keluar(&mut self) {
+        let k = self.ctx.kedalaman;
+        self.ctx.lingkup.pop();
+        self.ctx.kedalaman -= 1;
+        for (_, p) in self.ctx.pinjaman.iter_mut() {
+            p.retain(|x| !(x.oleh.is_some() && x.kedalaman == k));
+        }
+    }
+
+    fn cari(&self, nama: &str) -> Option<&Var> {
+        for l in self.ctx.lingkup.iter().rev() {
+            if let Some(v) = l.get(nama) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    fn cari_mut(&mut self, nama: &str) -> Option<&mut Var> {
+        for l in self.ctx.lingkup.iter_mut().rev() {
+            if l.contains_key(nama) {
+                return l.get_mut(nama);
+            }
+        }
+        None
+    }
+
+    fn akhir_pernyataan(&mut self) {
+        for (_, p) in self.ctx.pinjaman.iter_mut() {
+            p.retain(|x| x.oleh.is_some());
+        }
+    }
+
+    fn pinjaman_aktif(&self, akar: &str, ubah_saja: bool) -> Option<String> {
+        if let Some(d) = self.ctx.pinjaman.get(akar) {
+            for p in d {
+                if !ubah_saja || p.ubah {
+                    return Some(match (&p.oleh, p.ubah) {
+                        (Some(v), true) => format!("`&ubah {}` yang disimpan di `{}`", akar, v),
+                        (Some(v), false) => format!("`&{}` yang disimpan di `{}`", akar, v),
+                        (None, true) => format!("`&ubah {}` sementara", akar),
+                        (None, false) => format!("`&{}` sementara", akar),
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    fn tempat(&mut self, e: &Expr) -> Option<Tempat> {
+        match &e.kind {
+            ExprKind::Var(n) => {
+                let v = self.cari(n)?;
+                Some(Tempat { ty: v.ty.clone(), ubah: v.ubah, akar: n.clone() })
+            }
+            ExprKind::Medan { dasar, nama } => {
+                let d = self.tempat(dasar)?;
+                let nama_struk = nama_tipe(&d.ty)?;
+                let info = self.s.struk.get(nama_struk)?;
+                let idx = *info.indeks.get(nama)?;
+                Some(Tempat { ty: info.medan[idx].1.clone(), ubah: d.ubah, akar: d.akar })
+            }
+            ExprKind::Indeks { dasar, .. } => {
+                let d = self.tempat(dasar)?;
+                let ty = match &d.ty {
+                    Ty::Array(t, _) => (**t).clone(),
+                    Ty::Irisan(t) => (**t).clone(),
+                    Ty::Daftar(t) => (**t).clone(),
+                    _ => return None,
+                };
+                Some(Tempat { ty, ubah: d.ubah, akar: d.akar })
+            }
+            _ => None,
+        }
+    }
+
+    fn perlu_tempat(&mut self, e: &Expr, konteks: &str) -> Option<Tempat> {
+        let t = self.tempat(e);
+        if t.is_none() {
+            self.galat(e.span, format!("{} memerlukan variabel atau medan, bukan ekspresi sementara", konteks), "E0301");
+        }
+        t
+    }
+
+    fn blok(&mut self, b: &Block) {
+        self.masuk();
+        for st in &b.stmts {
+            self.stmt(st);
+            self.akhir_pernyataan();
+        }
+        self.keluar();
+    }
+
+    fn stmt(&mut self, st: &Stmt) {
+        match st {
+            Stmt::Ikat { tetap, nama, ty, nilai, span } => {
+                if let Some(t) = ty {
+                    if !self.s.tipe_sah(t) {
+                        self.galat(*span, format!("tipe `{}` belum dikenal", t.sebutan()), "E0203");
+                    }
+                }
+                let akar_awal = match &nilai.kind {
+                    ExprKind::Alamat { dasar, .. } => self.tempat(dasar).map(|t| t.akar),
+                    _ => None,
+                };
+                let t_nilai = self.eks(nilai, ty.as_ref());
+                if matches!(t_nilai, Ty::Ref { .. }) && !*tetap {
+                    self.galat(*span, format!("variabel peminjam `{}` harus `tetap`", nama), "E0302");
+                }
+                if let Some(akar) = akar_awal {
+                    if let Some(daftar) = self.ctx.pinjaman.get_mut(&akar) {
+                        if let Some(last) = daftar.last_mut() {
+                            last.oleh = Some(nama.clone());
+                            last.kedalaman = self.ctx.kedalaman;
+                        }
+                    }
+                }
+                let t_final = match ty {
+                    Some(t) => {
+                        if !self.cocok(t, &t_nilai) {
+                            self.galat(nilai.span, format!("variabel `{}` bertipe `{}` tetapi nilai bertipe `{}`", nama, t.sebutan(), t_nilai.sebutan()), "E0303");
+                        }
+                        t.clone()
+                    }
+                    None => {
+                        if matches!(t_nilai, Ty::Kosong) {
+                            self.galat(*span, format!("variabel `{}` tidak boleh bertipe `kosong`", nama), "E0304");
+                        }
+                        t_nilai.clone()
+                    }
+                };
+                if self.ctx.lingkup.last().unwrap().contains_key(nama) {
+                    self.galat(*span, format!("`{}` sudah dideklarasikan pada blok ini", nama), "E0305");
+                }
+                let k = self.ctx.kedalaman;
+                self.ctx.lingkup.last_mut().unwrap().insert(
+                    nama.clone(),
+                    Var { ty: t_final.clone(), ubah: !*tetap, dipindah: false, kedalaman: k },
+                );
+                self.s.lokal.insert((span.baris, span.kol), t_final);
+            }
+            Stmt::Tugas { target, nilai, span } => {
+                let tempat = self.perlu_tempat(target, "penugasan");
+                if let Some(t) = &tempat {
+                    if !t.ubah {
+                        self.galat(*span, format!("`{}` bersifat tetap; deklarasikan dengan `ubah` bila perlu diubah", t.akar), "E0306");
+                    }
+                    if let Some(p) = self.pinjaman_aktif(&t.akar, false) {
+                        if self.pinjaman_dari_lain(&t.akar) {
+                            self.galat(*span, format!("tidak boleh menulis `{}` selama ada {}", t.akar, p), "E0307");
+                        }
+                    }
+                }
+                self.ctx.jangan_pindah += 1;
+                let t_target = self.eks(target, None);
+                self.ctx.jangan_pindah -= 1;
+                if matches!(t_target, Ty::Ref { .. }) {
+                    self.galat(*span, "pinjaman tidak dapat dipindahkan ke variabel lain; buat pinjaman baru dengan `&`".into(), "E0370");
+                }
+                let t_nilai = self.eks(nilai, Some(&t_target));
+                if !self.cocok(&t_target, &t_nilai) {
+                    self.galat(nilai.span, format!("tidak dapat menugaskan `{}` ke tempat bertipe `{}`", t_nilai.sebutan(), t_target.sebutan()), "E0308");
+                }
+                if let Some(t) = &tempat {
+                    if let Some(v) = self.cari_mut(&t.akar) {
+                        v.dipindah = false;
+                    }
+                }
+            }
+            Stmt::Jika { kond, maka, lain, .. } => {
+                let t = self.eks(kond, Some(&Ty::Log));
+                if t != Ty::Log {
+                    self.galat(kond.span, format!("kondisi `jika` harus `log`, bukan `{}`", t.sebutan()), "E0309");
+                }
+                self.blok(maka);
+                if let Some(l) = lain {
+                    self.blok(l);
+                }
+            }
+            Stmt::Selama { kond, invarian, badan, .. } => {
+                let t = self.eks(kond, Some(&Ty::Log));
+                if t != Ty::Log {
+                    self.galat(kond.span, format!("kondisi `selama` harus `log`, bukan `{}`", t.sebutan()), "E0309");
+                }
+                for inv in invarian {
+                    let t = self.eks(inv, Some(&Ty::Log));
+                    if t != Ty::Log {
+                        self.galat(inv.span, format!("invarian harus `log`, bukan `{}`", t.sebutan()), "E0309");
+                    }
+                }
+                self.ctx.dalam_selama += 1;
+                self.blok(badan);
+                self.ctx.dalam_selama -= 1;
+            }
+            Stmt::UntukRentang { nama, dari, sampai, badan, span, .. } => {
+                let td = self.eks(dari, Some(&Ty::Bil));
+                let ts = self.eks(sampai, Some(&Ty::Bil));
+                if !self.bulat(&td) {
+                    self.galat(dari.span, format!("batas `untuk` harus bilangan bulat, bukan `{}`", td.sebutan()), "E0310");
+                }
+                if !self.bulat(&ts) {
+                    self.galat(sampai.span, format!("batas `untuk` harus bilangan bulat, bukan `{}`", ts.sebutan()), "E0311");
+                }
+                self.s.lokal.insert((span.baris, span.kol), Ty::Bil);
+                self.masuk();
+                self.ctx.dalam_selama += 1;
+                let k = self.ctx.kedalaman;
+                self.ctx.lingkup.last_mut().unwrap().insert(
+                    nama.clone(),
+                    Var { ty: Ty::Bil, ubah: false, dipindah: false, kedalaman: k },
+                );
+                for st in &badan.stmts {
+                    self.stmt(st);
+                    self.akhir_pernyataan();
+                }
+                self.ctx.dalam_selama -= 1;
+                self.keluar();
+            }
+            Stmt::UntukIsi { nama, wadah, badan, span } => {
+                self.ctx.jangan_pindah += 1;
+                let tw = self.eks(wadah, None);
+                self.ctx.jangan_pindah -= 1;
+                let elemen = match &tw {
+                    Ty::Array(t, _) => (**t).clone(),
+                    Ty::Irisan(t) => (**t).clone(),
+                    Ty::Daftar(t) => (**t).clone(),
+                    Ty::Teks => Ty::Huruf,
+                    lain => {
+                        self.galat(wadah.span, format!("`untuk ... dalam ...` memerlukan larik, irisan, `teks`, atau `Daftar`, bukan `{}`", lain.sebutan()), "E0312");
+                        Ty::Bil
+                    }
+                };
+                if !self.s.boleh_salin(&elemen) {
+                    self.galat(wadah.span, format!("elemen `{}` tidak dapat disalin; iterasi dengan indeks lalu `ambil`", elemen.sebutan()), "E0313");
+                }
+                self.s.elemen_untuk.insert((span.baris, span.kol), elemen.clone());
+                self.s.lokal.insert((span.baris, span.kol), elemen.clone());
+                self.masuk();
+                self.ctx.dalam_selama += 1;
+                let k = self.ctx.kedalaman;
+                self.ctx.lingkup.last_mut().unwrap().insert(
+                    nama.clone(),
+                    Var { ty: elemen, ubah: false, dipindah: false, kedalaman: k },
+                );
+                for st in &badan.stmts {
+                    self.stmt(st);
+                    self.akhir_pernyataan();
+                }
+                self.ctx.dalam_selama -= 1;
+                self.keluar();
+            }
+            Stmt::Kembali(nilai, span) => match nilai {
+                Some(e) => {
+                    if self.ctx.hasil == Ty::Kosong {
+                        self.galat(*span, format!("fungsi `{}` tidak mengembalikan nilai", self.fungsi), "E0314");
+                    }
+                    let harap = self.ctx.hasil.clone();
+                    let t = self.eks(e, Some(&harap));
+                    if !self.cocok(&self.ctx.hasil, &t) {
+                        self.galat(e.span, format!("`kembali` mengharapkan `{}`, tetapi nilainya `{}`", self.ctx.hasil.sebutan(), t.sebutan()), "E0315");
+                    }
+                }
+                None => {
+                    if self.ctx.hasil != Ty::Kosong {
+                        self.galat(*span, format!("fungsi `{}` harus mengembalikan `{}`", self.fungsi, self.ctx.hasil.sebutan()), "E0316");
+                    }
+                }
+            },
+            Stmt::Tegas { kond, .. } => {
+                let t = self.eks(kond, Some(&Ty::Log));
+                if t != Ty::Log {
+                    self.galat(kond.span, format!("`tegas` memerlukan kondisi `log`, bukan `{}`", t.sebutan()), "E0309");
+                }
+            }
+            Stmt::Ekspresi(e) => {
+                let t = self.eks(e, None);
+                if t != Ty::Kosong {
+                    self.galat(e.span, format!("ekspresi bertipe `{}` tidak dipakai; buang atau simpan ke variabel", t.sebutan()), "E0317");
+                }
+            }
+            Stmt::Henti(span) | Stmt::Lanjut(span) => {
+                if self.ctx.dalam_selama == 0 {
+                    self.galat(*span, "`henti`/`lanjut` hanya sah di dalam `selama` atau `untuk`".into(), "E0318");
+                }
+            }
+            Stmt::Blok(b) => self.blok(b),
+        }
+    }
+
+    fn pinjaman_dari_lain(&self, akar: &str) -> bool {
+        self.ctx.pinjaman.get(akar).map(|d| d.iter().any(|p| p.oleh.is_some())).unwrap_or(false)
+    }
+
+    fn bulat(&self, t: &Ty) -> bool {
+        matches!(t, Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8)
+    }
+
+    fn angka(&self, t: &Ty) -> bool {
+        matches!(t, Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Pecah)
+    }
+
+    fn cocok(&self, harap: &Ty, dapat: &Ty) -> bool {
+        if harap == dapat {
+            return true;
+        }
+        matches!((harap, dapat), (Ty::Irisan(a), Ty::Array(b, _)) if a == b)
+            || matches!((harap, dapat), (Ty::Irisan(a), Ty::Irisan(b)) if a == b)
+    }
+
+    fn eks(&mut self, e: &Expr, harap: Option<&Ty>) -> Ty {
+        let t = self.eks_dalam(e, harap);
+        self.s.tipe.insert(e.id, t.clone());
+        t
+    }
+
+    fn eks_dalam(&mut self, e: &Expr, harap: Option<&Ty>) -> Ty {
+        match &e.kind {
+            ExprKind::Bil(v) => {
+                let t = match harap {
+                    Some(t @ (Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf)) => t.clone(),
+                    _ => Ty::Bil,
+                };
+                if !nilai_muat(&t, *v) {
+                    self.galat(e.span, format!("nilai {} tidak muat dalam tipe `{}`", v, t.sebutan()), "E0319");
+                }
+                t
+            }
+            ExprKind::Huruf(_) => Ty::Huruf,
+            ExprKind::Pecah(_) => Ty::Pecah,
+            ExprKind::Teks(_) => Ty::Teks,
+            ExprKind::Log(_) => Ty::Log,
+            ExprKind::Var(n) => {
+                if n == "hasil" && self.cari("hasil").is_none() {
+                    if !self.ctx.dalam_jamin {
+                        self.galat(e.span, "`hasil` hanya boleh dipakai pada klausa `jamin`".into(), "E0374");
+                    }
+                    return self.ctx.hasil.clone();
+                }
+                match self.cari(n).cloned() {
+                    Some(v) => {
+                        if v.dipindah {
+                            self.galat(e.span, format!("`{}` sudah dipindahkan (move); nilai tidak boleh dipakai lagi", n), "E0320");
+                        }
+                        if let Some(p) = self.pinjaman_aktif(n, true) {
+                            self.galat(e.span, format!("`{}` sedang dipinjam secara eksklusif oleh {}", n, p), "E0321");
+                        }
+                        if !self.s.boleh_salin(&v.ty) && self.ctx.jangan_pindah == 0 {
+                            if let Some(m) = self.cari_mut(n) {
+                                m.dipindah = true;
+                            }
+                        }
+                        v.ty
+                    }
+                    None => {
+                        if self.s.sig.contains_key(n) {
+                            self.galat(e.span, format!("`{}` adalah fungsi; panggil dengan `{}()`", n, n), "E0322");
+                        } else {
+                            self.galat(e.span, format!("nama `{}` belum dideklarasikan", n), "E0323");
+                        }
+                        Ty::Bil
+                    }
+                }
+            }
+            ExprKind::Biner(op, a, b) => match op {
+                BinOp::Dan | BinOp::Atau => {
+                    let ta = self.eks(a, Some(&Ty::Log));
+                    let tb = self.eks(b, Some(&Ty::Log));
+                    if ta != Ty::Log || tb != Ty::Log {
+                        self.galat(e.span, format!("operator `{}` memerlukan dua `log`", op.simbol()), "E0324");
+                    }
+                    Ty::Log
+                }
+                BinOp::Sama | BinOp::TidakSama => {
+                    let ta = self.eks(a, None);
+                    let tb = self.eks(b, Some(&ta));
+                    let setara = ta == tb;
+                    if !setara {
+                        self.galat(e.span, format!("tidak dapat membandingkan `{}` dengan `{}`", ta.sebutan(), tb.sebutan()), "E0325");
+                    }
+                    Ty::Log
+                }
+                BinOp::Kecil | BinOp::KecilSama | BinOp::Besar | BinOp::BesarSama => {
+                    let ta = self.eks(a, None);
+                    let tb = self.eks(b, Some(&ta));
+                    if ta != tb || !(self.angka(&ta) || ta == Ty::Teks) {
+                        self.galat(e.span, format!("operator `{}` memerlukan dua nilai bertipe sama (angka atau teks)", op.simbol()), "E0326");
+                    }
+                    Ty::Log
+                }
+                _ => {
+                    let ta = self.eks(a, harap);
+                    let tb = self.eks(b, Some(&ta));
+                    if ta != tb {
+                        self.galat(b.span, format!("`{}` memerlukan dua nilai bertipe sama, bukan `{}` dan `{}`", op.simbol(), ta.sebutan(), tb.sebutan()), "E0327");
+                    }
+                    if !self.angka(&ta) {
+                        self.galat(e.span, format!("operator `{}` hanya untuk angka, bukan `{}`", op.simbol(), ta.sebutan()), "E0328");
+                    }
+                    ta
+                }
+            },
+            ExprKind::Uner(op, a) => match op {
+                UnOp::Neg => {
+                    let t = self.eks(a, harap);
+                    if !matches!(t, Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Pecah) {
+                        self.galat(a.span, format!("`-` hanya untuk bilangan bertanda, bukan `{}`", t.sebutan()), "E0329");
+                    }
+                    t
+                }
+                UnOp::Bukan => {
+                    let t = self.eks(a, Some(&Ty::Log));
+                    if t != Ty::Log {
+                        self.galat(a.span, format!("`bukan` memerlukan `log`, bukan `{}`", t.sebutan()), "E0330");
+                    }
+                    Ty::Log
+                }
+            },
+            ExprKind::Alamat { ubah, dasar } => {
+                let t = match self.perlu_tempat(dasar, "peminjaman") {
+                    Some(t) => t,
+                    None => return Ty::Kosong,
+                };
+                if self.cari(&t.akar).map(|v| v.dipindah).unwrap_or(false) {
+                    self.galat(e.span, format!("tidak dapat meminjam `{}` yang sudah dipindahkan", t.akar), "E0331");
+                }
+                if *ubah {
+                    if !t.ubah {
+                        self.galat(e.span, format!("`&ubah {}` memerlukan variabel `ubah`", t.akar), "E0332");
+                    }
+                    if let Some(p) = self.pinjaman_aktif(&t.akar, false) {
+                        self.galat(e.span, format!("tidak dapat meminjam `&ubah {}` karena sudah ada {}", t.akar, p), "E0333");
+                    }
+                } else if let Some(p) = self.pinjaman_aktif(&t.akar, true) {
+                    self.galat(e.span, format!("tidak dapat meminjam `&{}` karena sudah ada {}", t.akar, p), "E0334");
+                }
+                let k = self.ctx.kedalaman;
+                self.ctx.pinjaman.entry(t.akar.clone()).or_default().push(Pinjaman { ubah: *ubah, oleh: None, kedalaman: k });
+                Ty::Ref { ubah: *ubah, dalam: Box::new(t.ty) }
+            }
+            ExprKind::Indeks { dasar, indeks } => {
+                self.ctx.jangan_pindah += 1;
+                let td = self.eks(dasar, None);
+                self.ctx.jangan_pindah -= 1;
+                let ti = self.eks(indeks, Some(&Ty::Bil));
+                if !self.bulat(&ti) {
+                    self.galat(indeks.span, format!("indeks harus bilangan bulat, bukan `{}`", ti.sebutan()), "E0335");
+                }
+                if let Some(akar) = self.tempat(dasar).map(|t| t.akar) {
+                    if let Some(p) = self.pinjaman_aktif(&akar, true) {
+                        self.galat(e.span, format!("`{}` sedang dipinjam secara eksklusif oleh {}", akar, p), "E0336");
+                    }
+                }
+                match td.clone() {
+                    Ty::Array(t, _) | Ty::Irisan(t) | Ty::Daftar(t) => *t,
+                    Ty::Teks => Ty::Huruf,
+                    Ty::Ref { dalam, .. } => match (*dalam).clone() {
+                        Ty::Array(t, _) | Ty::Irisan(t) | Ty::Daftar(t) => *t,
+                        _ => {
+                            self.galat(dasar.span, format!("tipe `{}` tidak dapat diindeks", td.sebutan()), "E0337");
+                            Ty::Bil
+                        }
+                    },
+                    lain => {
+                        self.galat(dasar.span, format!("tipe `{}` tidak dapat diindeks", lain.sebutan()), "E0337");
+                        Ty::Bil
+                    }
+                }
+            }
+            ExprKind::Medan { dasar, nama } => {
+                self.ctx.jangan_pindah += 1;
+                let td = self.eks(dasar, None);
+                self.ctx.jangan_pindah -= 1;
+                if let Some(akar) = self.tempat(dasar).map(|t| t.akar) {
+                    if let Some(p) = self.pinjaman_aktif(&akar, true) {
+                        self.galat(e.span, format!("`{}` sedang dipinjam secara eksklusif oleh {}", akar, p), "E0336");
+                    }
+                }
+                let nama_struk = match &td {
+                    Ty::Nama(n) => Some(n.clone()),
+                    Ty::Ref { dalam, .. } => match &**dalam {
+                        Ty::Nama(n) => Some(n.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match nama_struk.and_then(|n| self.s.struk.get(&n).cloned().map(|s| (n, s))) {
+                    Some((n, info)) => match info.indeks.get(nama) {
+                        Some(i) => info.medan[*i].1.clone(),
+                        None => {
+                            let daftar: Vec<String> = info.medan.iter().map(|(m, _)| m.clone()).collect();
+                            self.galat(e.span, format!("struk `{}` tidak punya medan `{}` (medan: {})", n, nama, daftar.join(", ")), "E0338");
+                            Ty::Bil
+                        }
+                    },
+                    None => {
+                        self.galat(e.span, format!("`{}` bukan struk, jadi tidak punya medan `{}`", td.sebutan(), nama), "E0339");
+                        Ty::Bil
+                    }
+                }
+            }
+            ExprKind::Sebagai { nilai, ty } => {
+                let asal = self.eks(nilai, None);
+                if !self.s.tipe_sah(ty) {
+                    self.galat(e.span, format!("tipe `{}` belum dikenal", ty.sebutan()), "E0203");
+                }
+                let sah = self.angka(&asal) && self.angka(ty) && asal != Ty::Pecah && *ty != Ty::Pecah;
+                let sah = sah || (asal == Ty::Huruf && self.bulat(ty)) || (self.bulat(&asal) && *ty == Ty::Huruf) || asal == *ty;
+                if !sah {
+                    self.galat(e.span, format!("konversi `sebagai` dari `{}` ke `{}` tidak diizinkan", asal.sebutan(), ty.sebutan()), "E0340");
+                }
+                ty.clone()
+            }
+            ExprKind::StrukLit { nama, medan } => {
+                let info = match self.s.struk.get(nama).cloned() {
+                    Some(i) => i,
+                    None => {
+                        if self.s.enumerasi.contains_key(nama) {
+                            self.galat(e.span, format!("`{}` adalah enumerasi; gunakan `{}::Varian`", nama, nama), "E0341");
+                        } else {
+                            self.galat(e.span, format!("struk `{}` belum dideklarasikan", nama), "E0342");
+                        }
+                        for (_, mv) in medan {
+                            self.eks(mv, None);
+                        }
+                        return Ty::Kosong;
+                    }
+                };
+                let mut dilihat = vec![false; info.medan.len()];
+                for (mn, mv) in medan {
+                    match info.indeks.get(mn) {
+                        Some(i) => {
+                            if dilihat[*i] {
+                                self.galat(mv.span, format!("medan `{}` diisi dua kali", mn), "E0343");
+                            }
+                            dilihat[*i] = true;
+                            let harap_m = info.medan[*i].1.clone();
+                            let tm = self.eks(mv, Some(&harap_m));
+                            if !self.cocok(&harap_m, &tm) {
+                                self.galat(mv.span, format!("medan `{}` bertipe `{}`, tetapi diisi `{}`", mn, harap_m.sebutan(), tm.sebutan()), "E0344");
+                            }
+                        }
+                        None => {
+                            let daftar: Vec<String> = info.medan.iter().map(|(m, _)| m.clone()).collect();
+                            self.galat(mv.span, format!("struk `{}` tidak punya medan `{}` (medan: {})", nama, mn, daftar.join(", ")), "E0345");
+                            self.eks(mv, None);
+                        }
+                    }
+                }
+                for (i, (mn, _)) in info.medan.iter().enumerate() {
+                    if !dilihat[i] {
+                        self.galat(e.span, format!("medan `{}` belum diisi pada literal `{}`", mn, nama), "E0346");
+                    }
+                }
+                Ty::Nama(nama.clone())
+            }
+            ExprKind::Varian { enumerasi, varian } => match self.s.enumerasi.get(enumerasi).cloned() {
+                Some(info) => {
+                    if !info.varian.contains(varian) {
+                        self.galat(e.span, format!("enumerasi `{}` tidak punya varian `{}` (varian: {})", enumerasi, varian, info.varian.join(", ")), "E0347");
+                    }
+                    Ty::Nama(enumerasi.clone())
+                }
+                None => {
+                    self.galat(e.span, format!("enumerasi `{}` belum dideklarasikan", enumerasi), "E0348");
+                    Ty::Kosong
+                }
+            },
+            ExprKind::ArrayLit(isi) => {
+                let harap_elemen = match harap {
+                    Some(Ty::Array(t, _)) => Some((**t).clone()),
+                    Some(Ty::Irisan(t)) => Some((**t).clone()),
+                    _ => None,
+                };
+                if isi.is_empty() {
+                    self.galat(e.span, "larik kosong `[]` tidak dapat disimpulkan tipenya".into(), "E0349");
+                    return Ty::Array(Box::new(Ty::Bil), 0);
+                }
+                let t0 = self.eks(&isi[0], harap_elemen.as_ref());
+                for x in &isi[1..] {
+                    let tx = self.eks(x, Some(&t0));
+                    if !self.cocok(&t0, &tx) {
+                        self.galat(x.span, format!("elemen larik bertipe `{}`, sebelumnya `{}`", tx.sebutan(), t0.sebutan()), "E0350");
+                    }
+                }
+                if let Some(h) = harap_elemen {
+                    if !self.cocok(&h, &t0) {
+                        self.galat(e.span, format!("larik `{}` tidak cocok dengan `{}`", t0.sebutan(), h.sebutan()), "E0351");
+                    }
+                }
+                Ty::Array(Box::new(t0), isi.len())
+            }
+            ExprKind::Panggil { nama, args } => self.panggil(e, nama, args, harap),
+        }
+    }
+
+    fn panggil(&mut self, e: &Expr, nama_awal: &str, args: &[Expr], harap: Option<&Ty>) -> Ty {
+        let mut nama = nama_awal.to_string();
+        let metode = nama.starts_with("__metode__");
+        if metode {
+            nama = nama.trim_start_matches("__metode__").to_string();
+        }
+        if metode && !self.s.baatan.iter().any(|b| b == &nama) {
+            self.galat(e.span, format!("tipe tidak punya metode `{}` (v0.1 hanya punya metode bawaan: panjang, ambil, tambah, sisip)", nama), "E0352");
+            for a in args {
+                self.eks(a, None);
+            }
+            return Ty::Bil;
+        }
+        if !self.s.baatan.iter().any(|b| b == &nama) {
+            let sig = match self.s.sig.get(&nama).cloned() {
+                Some(s) => s,
+                None => {
+                    self.galat(e.span, format!("fungsi `{}` belum dideklarasikan", nama), "E0353");
+                    for a in args {
+                        self.eks(a, None);
+                    }
+                    return Ty::Kosong;
+                }
+            };
+            if args.len() != sig.params.len() {
+                self.galat(e.span, format!("`{}` memerlukan {} argumen, tetapi diberi {}", nama, sig.params.len(), args.len()), "E0354");
+            }
+            for (i, a) in args.iter().enumerate() {
+                match sig.params.get(i) {
+                    Some(p) => {
+                        let t = self.eks(a, Some(p));
+                        if !self.cocok(p, &t) {
+                            self.galat(a.span, format!("argumen ke-{} `{}` bertipe `{}`, diharapkan `{}`", i + 1, nama, t.sebutan(), p.sebutan()), "E0355");
+                        }
+                    }
+                    None => {
+                        self.eks(a, None);
+                    }
+                }
+            }
+            self.s.panggil.insert(e.id, Panggilan::Fungsi(nama));
+            return sig.hasil;
+        }
+        self.s.panggil.insert(e.id, Panggilan::Bawaan(nama.clone()));
+        match nama.as_str() {
+            "cetak" | "tulis" => {
+                for a in args {
+                    let t = self.eks(a, None);
+                    let enum_sah = matches!(&t, Ty::Nama(n) if self.s.enumerasi.contains_key(n));
+                    if !enum_sah && !matches!(t, Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Pecah | Ty::Log | Ty::Teks | Ty::Huruf) {
+                        self.galat(a.span, format!("`{}` tidak dapat mencetak tipe `{}`", nama, t.sebutan()), "E0356");
+                    }
+                }
+                Ty::Kosong
+            }
+            "daftar" => {
+                if !args.is_empty() {
+                    self.galat(e.span, "`daftar()` tidak menerima argumen".into(), "E0357");
+                }
+                match harap {
+                    Some(Ty::Daftar(t)) => Ty::Daftar(t.clone()),
+                    _ => {
+                        self.galat(e.span, "`daftar()` memerlukan anotasi tipe, mis. `ubah d: Daftar<bil> = daftar()`".into(), "E0358");
+                        Ty::Daftar(Box::new(Ty::Bil))
+                    }
+                }
+            }
+            "tambah" | "sisip" => {
+                if args.len() != 2 {
+                    self.galat(e.span, format!("`{}` memerlukan 2 argumen: wadah dan nilai", nama), "E0359");
+                    for a in args {
+                        self.eks(a, None);
+                    }
+                    return Ty::Kosong;
+                }
+                self.ctx.jangan_pindah += 1;
+                let t0 = self.eks(&args[0], None);
+                self.ctx.jangan_pindah -= 1;
+                let elemen = match &t0 {
+                    Ty::Ref { ubah: true, dalam } => match &**dalam {
+                        Ty::Daftar(t) => (**t).clone(),
+                        _ => {
+                            self.galat(args[0].span, format!("`{}` memerlukan `&ubah Daftar<T>`", nama), "E0360");
+                            Ty::Bil
+                        }
+                    },
+                    _ => {
+                        self.galat(args[0].span, format!("`{}` memerlukan `&ubah Daftar<T>` (tulis `{}(&ubah d, x)`)", nama, nama), "E0360");
+                        Ty::Bil
+                    }
+                };
+                let t1 = self.eks(&args[1], Some(&elemen));
+                if !self.cocok(&elemen, &t1) {
+                    self.galat(args[1].span, format!("`{}` mengharapkan `{}`, tetapi diberi `{}`", nama, elemen.sebutan(), t1.sebutan()), "E0361");
+                }
+                Ty::Kosong
+            }
+            "panjang" => {
+                if args.len() != 1 {
+                    self.galat(e.span, "`panjang` memerlukan 1 argumen".into(), "E0362");
+                }
+                let t = match args.first() {
+                    Some(a) => {
+                        self.ctx.jangan_pindah += 1;
+                        let t = self.eks(a, None);
+                        self.ctx.jangan_pindah -= 1;
+                        t
+                    }
+                    None => Ty::Kosong,
+                };
+                let t = match t {
+                    Ty::Ref { dalam, .. } => *dalam,
+                    lain => lain,
+                };
+                if !matches!(t, Ty::Teks | Ty::Irisan(_) | Ty::Array(_, _) | Ty::Daftar(_)) {
+                    self.galat(e.span, format!("`panjang` tidak berlaku untuk `{}`", t.sebutan()), "E0363");
+                }
+                Ty::Bil
+            }
+            "ambil" => {
+                if args.len() != 2 {
+                    self.galat(e.span, "`ambil` memerlukan 2 argumen: wadah dan indeks".into(), "E0364");
+                    for a in args {
+                        self.eks(a, None);
+                    }
+                    return Ty::Kosong;
+                }
+                self.ctx.jangan_pindah += 1;
+                let t = self.eks(&args[0], None);
+                self.ctx.jangan_pindah -= 1;
+                let t = match t {
+                    Ty::Ref { dalam, .. } => *dalam,
+                    lain => lain,
+                };
+                let ti = self.eks(&args[1], Some(&Ty::Bil));
+                if !self.bulat(&ti) {
+                    self.galat(args[1].span, format!("indeks harus bilangan bulat, bukan `{}`", ti.sebutan()), "E0365");
+                }
+                match &t {
+                    Ty::Array(e2, _) | Ty::Irisan(e2) | Ty::Daftar(e2) => (**e2).clone(),
+                    Ty::Teks => Ty::Huruf,
+                    _ => {
+                        self.galat(args[0].span, format!("`ambil` tidak berlaku untuk `{}`", t.sebutan()), "E0366");
+                        Ty::Bil
+                    }
+                }
+            }
+            "gagal" => {
+                if args.len() != 1 {
+                    self.galat(e.span, "`gagal` memerlukan 1 argumen teks".into(), "E0368");
+                }
+                for a in args {
+                    let t = self.eks(a, Some(&Ty::Teks));
+                    if t != Ty::Teks {
+                        self.galat(a.span, format!("`gagal` memerlukan `teks`, bukan `{}`", t.sebutan()), "E0369");
+                    }
+                }
+                Ty::Kosong
+            }
+            lain => {
+                self.galat(e.span, format!("fungsi bawaan `{}` tidak dikenal", lain), "E0367");
+                for a in args {
+                    self.eks(a, None);
+                }
+                Ty::Kosong
+            }
+        }
+    }
+}
+
+fn nilai_muat(t: &Ty, v: i64) -> bool {
+    match t {
+        Ty::Bil => true,
+        Ty::Bil32 => v >= i32::MIN as i64 && v <= i32::MAX as i64,
+        Ty::Bil8 => v >= i8::MIN as i64 && v <= i8::MAX as i64,
+        Ty::Nat => v >= 0,
+        Ty::Nat8 => v >= 0 && v <= u8::MAX as i64,
+        Ty::Huruf => v >= 0 && v <= u8::MAX as i64,
+        _ => false,
+    }
+}

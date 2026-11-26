@@ -1,0 +1,26 @@
+// Teks adalah irisan byte yang tidak dapat diubah (aman, tanpa alokasi).
+fungsi hitung_huruf(s: teks, c: huruf) -> bil {
+    ubah n: bil = 0;
+    ubah i: bil = 0;
+    selama i < panjang(s)
+        invarian i >= 0
+        invarian i <= panjang(s)
+        invarian n >= 0
+    {
+        jika s[i] == c {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    kembali n
+}
+
+fungsi utama() -> bil {
+    tetap s: teks = "nusantara";
+    cetak("teks     = ", s)
+    cetak("panjang  = ", panjang(s))
+    cetak("huruf a  = ", hitung_huruf(s, 'a'))
+    cetak("sama?    = ", s == "nusantara")
+    cetak("banding  = ", s < "nusantaraz")
+    kembali 0
+}
