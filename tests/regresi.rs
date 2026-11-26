@@ -63,10 +63,12 @@ fn jalankan_asan(nama: &str, isi: &str) -> Option<String> {
         .output()
         .unwrap();
     assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
-    let run = Command::new(&biner)
-        .env("ASAN_OPTIONS", "detect_leaks=1")
-        .output()
-        .unwrap();
+    let mut cmd = Command::new(&biner);
+    // LeakSanitizer tidak tersedia di macOS; ASan tetap memeriksa memori.
+    if cfg!(target_os = "linux") {
+        cmd.env("ASAN_OPTIONS", "detect_leaks=1");
+    }
+    let run = cmd.output().unwrap();
     assert!(
         run.status.success(),
         "biner ASAN gagal: {}",
