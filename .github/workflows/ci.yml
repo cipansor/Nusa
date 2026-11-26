@@ -161,7 +161,10 @@ jobs:
       - name: Jalankan cakupan
         run: cargo llvm-cov --locked --all-targets --lcov --output-path lcov.info
       - name: Ringkasan cakupan
-        run: cargo llvm-cov report --summary-only | tee coverage-summary.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
       - name: Simpan laporan cakupan
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -251,16 +254,45 @@ jobs:
         run: cargo test --locked --release --all-targets
       - name: Bangun release
         run: cargo build --release --locked
-      - name: Smoke test biner
+      - name: Smoke test biner lokal
         run: ./target/release/nusa bantuan > /dev/null
-      - name: Buat checksum
-        run: sha256sum target/release/nusa > SHA256SUMS
+      - name: Siapkan paket release
+        shell: bash
+        run: |
+          set -euo pipefail
+          paket="nusa-linux-${GITHUB_SHA}"
+          mkdir -p "release/${paket}"
+          install -m 0755 target/release/nusa "release/${paket}/nusa"
+          (
+            cd "release/${paket}"
+            sha256sum nusa > SHA256SUMS
+          )
+          tar -C release -czf "release/${paket}.tar.gz" "${paket}"
+          (
+            cd release
+            sha256sum "${paket}.tar.gz" > "${paket}.tar.gz.sha256"
+          )
+      - name: Verifikasi paket hasil ekstraksi
+        shell: bash
+        run: |
+          set -euo pipefail
+          paket="nusa-linux-${GITHUB_SHA}"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          (cd release && sha256sum -c "${paket}.tar.gz.sha256")
+          tar -xzf "release/${paket}.tar.gz" -C "$tmp"
+          test -x "$tmp/${paket}/nusa"
+          (
+            cd "$tmp/${paket}"
+            sha256sum -c SHA256SUMS
+            ./nusa bantuan > /dev/null
+          )
       - name: Simpan artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: nusa-linux-${{ github.sha }}
           path: |
-            target/release/nusa
-            SHA256SUMS
+            release/nusa-linux-${{ github.sha }}.tar.gz
+            release/nusa-linux-${{ github.sha }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
