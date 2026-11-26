@@ -46,11 +46,13 @@ nusa jalankan berkas.ns             # kompilasi lalu jalankan binernya
 nusa periksa  berkas.ns             # tipe + kepemilikan + peminjaman (cepat)
 nusa ir       berkas.ns             # cetak LLVM IR
 nusa bukti    berkas.ns             # buktikan kontrak dengan Z3
+nusa --smt    berkas.ns             # nama lain untuk `bukti`
 ```
 
 Opsi: `--opt 0..3` (bawaan 2), `--simpan-ir`, `--bebas-jaga`
 (buang penjaga runtime saat kompilasi; **ditolak** bila ada tugas yang belum
-terbukti). Ekstensi berkas sumber Nusa adalah **`.ns`**.
+terbukti), dan `--boleh-takaman` (izin eksplisit untuk blok `takaman`).
+Ekstensi berkas sumber Nusa adalah **`.ns`**.
 
 Pipeline internal:
 
@@ -139,7 +141,10 @@ Tanpa titik koma: akhir baris sudah memisahkan pernyataan (seperti Go).
 | `perlu` / `jamin` | precondition / postcondition |
 | `invarian` | loop invariant |
 | `sebagai` | cast |
-| `impor` | import |
+| `impor` | import modul |
+| `jenis` | alias tipe |
+| `pilihan` / `cocok` / `kasus` | enum berlabel / match / case |
+| `takaman` | blok tidak aman (perlu `--boleh-takaman`) |
 | `benar` / `salah` | true / false |
 | `dan` / `atau` / `bukan` | and / or / not |
 
@@ -218,7 +223,23 @@ enumerasi Arah { Utara, Selatan, Timur, Barat }
 
 ubah t: Titik = Titik { x: 0, y: 1 };
 cetak(t.x, " ", Arah::Timur)     // mencetak nama varian: "Timur"
+
+pilihan Status { Aktif, Nonaktif }
+
+cocok s {
+    kasus Aktif    { cetak("aktif") }
+    kasus Nonaktif { cetak("nonaktif") }
+}
 ```
+
+`cocok` harus menyebut setiap varian dari `pilihan`/`enumerasi` yang dicocokkan;
+varian yang hilang (`E0382`) dan varian asing (`E0380`) ditolak saat periksa.
+
+Blok `takaman { … }` mematikan penjaga runtime untuk isinya (luber, batas
+indeks, bagi nol, geser tidak sah). Karena itu blok ini **tidak** termasuk
+jaminan aman-memori bawaan: program ditolak dengan `E0385` kecuali kompilasi
+dijalankan dengan `--boleh-takaman`, dan setiap pemakaian sebaiknya diberi
+alasan serta dikurung seluas mungkin.
 
 ### 3.8 Larik, irisan, dan `Daftar<T>`
 
@@ -234,7 +255,9 @@ fungsi jumlah(a: [bil]) -> bil {
 
 ubah d: Daftar<bil> = daftar();
 tambah(&ubah d, 42);            // meminjam secara eksklusif
-cetak(ambil(d, 0), panjang(d))
+ubah e: Daftar<bil> = daftar();
+e.tambah(7); e.tambah(8);       // bentuk metode (penerima harus `ubah`)
+cetak(ambil(d, 0), panjang(d), e.panjang())
 ```
 
 ### 3.9 Teks
@@ -250,7 +273,19 @@ cetak(s < "nusantaraz")  // urutan leksikografis
 `teks` adalah irisan byte **tak berubah** kepunyaan orang lain: tidak bisa
 diubah, tidak dialokasikan, tidak perlu dibebaskan.
 
-### 3.10 Cetak
+### 3.10 Metode, alias, dan modul
+
+Bentuk metode hanya mengubah gula sintaks: `d.tambah(x)` setara
+`tambah(&ubah d, x)`, dan `d.panjang()` setara `panjang(d)`. Penerima yang
+tidak dideklarasikan `ubah` ditolak dengan `E0383`.
+
+Alias tipe dideklarasikan dengan `jenis Nama = Tipe;`; alias hanya nama lain
+untuk tipe yang sudah dikenal dan tidak membuat tipe nominal baru. Modul lain
+dimuat dengan `impor "berkas"` (tanpa ekstensi) secara rekursif; setiap berkas
+dimuat sekali, dan deklarasi yang bentrok dilaporkan sebagai galat alih-alih
+digabung diam-diam.
+
+### 3.11 Cetak
 
 `cetak(a, b, c)` mencetak semua argumen lalu satu baris baru; `tulis(...)`
 tanpa baris baru. Nilai `log` dicetak sebagai `benar`/`salah`, `enumerasi`
@@ -464,11 +499,12 @@ dibangkitkan, tetap cepat karena `llc -O2`.
 ## 9. Uji
 
 ```bash
-cargo build --release
-./uji/jalankan.sh
+cargo test                 # 14 uji regresi Rust (penafsir + biner bila LLVM ada)
+./uji/jalankan.sh          # uji ujung-ke-ujung + kesetaraan dua mesin
 ```
 
 ```
+test result: ok. 14 passed; 0 failed
 ringkasan uji: 48 lulus, 0 gagal
 ```
 
@@ -477,21 +513,29 @@ dengan biner** pada 7 contoh dan satu program unit (bilangan bertipe sempit,
 `sebagai`, `lanjut`/`henti`, teks, larik), verifikasi formal (semua terbukti
 vs. jujur tak terbukti), penjaga runtime di kedua mode, penolakan
 `--bebas-jaga`, dan 8 program tidak aman yang **wajib** ditolak dengan kode
-galat tertentu — termasuk saat dijalankan lewat penafsir.
+galat tertentu — termasuk saat dijalankan lewat penafsir. Uji Rust menambahkan
+regresi untuk literal `i64::MIN`, konversi `pecah`↔bulat (termasuk NaN/luar
+rentang), geser di luar lebar, `takaman`/`--boleh-takaman`, kelengkapan
+`cocok`, penerima metode `tetap`, batas kedalaman parser, batas rekursi
+penafsir, impor modul/duplikasi, dan pinjaman medan struk.
 
 ---
 
 ## 10. Batasan v0.1 dan peta jalan
 
 Yang **sudah** ada: tipe dasar + larik/irisan/`Daftar<T>`, struk, enumerasi
-tanpa payload, kontrol alur lengkap, kontrak + invarian + `tegas`, verifikasi
-SMT untuk tipe bulat dan larik, penjaga runtime, `--bebas-jaga`, pesan galat
-berbahasa Indonesia, **dua mode eksekusi (penafsir + kompiler)**, dan CLI
-lengkap.
+tanpa payload, `pilihan` + `cocok` dengan pemeriksaan kelengkapan, alias
+`jenis`, `impor` modul dengan deteksi duplikasi, kontrol alur lengkap, kontrak
++ invarian + `tegas`, verifikasi SMT untuk tipe bulat dan larik, penjaga
+runtime, `--bebas-jaga`, blok `takaman` yang wajib diaktifkan eksplisit, pesan
+galat berbahasa Indonesia, **dua mode eksekusi (penafsir + kompiler)**, dan
+CLI lengkap.
 
 Yang **belum** (dan tidak diklaim ada):
 
-* `pilih`/pencocokan pola dan enumerasi berpayload (`E0101` dari parser);
+* pencocokan pola berpayload dan enumerasi berpayload (`E0101` dari parser);
+* alias `cacah32` saat ini dipetakan ke `nat` (u64), bukan lebar u32; tipe
+  nominal berlebar tetap untuk alias belum ada;
 * konkatenasi/pemotongan `teks` dan `Daftar<teks>` (butuh model kepemilikan
   string yang lebih kaya);
 * fungsi generik, closure, dan tipe hasil `impl`/trait;
@@ -500,7 +544,9 @@ Yang **belum** (dan tidak diklaim ada):
 * verifikasi untuk `pecah`, `teks`, `Daftar<T>`, dan fungsi yang memakai
   `henti`/`lanjut` (dilaporkan sebagai "dilewati"/"belum dimodelkan", bukan
   diklaim terbukti);
-* `impor` diterima tetapi belum diikuti (modul tunggal);
+* pemilihan simbol per-modul dan impor selektif belum ada; semua deklarasi
+  impor digabung ke satu ruang nama, dan benturan nama dilaporkan sebagai
+  galat; impor melingkar diabaikan lewat penanda berkas yang sudah dimuat;
 * `&ubah T` hanya untuk meneruskan ke bawaan seperti `tambah` — belum ada
   penulisan langsung lewat referensi (`*p = ...`);
 * induksi/lemma untuk spesifikasi fungsional (mis. `hasil == n!`), sehingga

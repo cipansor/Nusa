@@ -22,10 +22,15 @@ struct Opsi {
     bebas_jaga: bool,
     simpan_ir: bool,
     opt: u8,
+    boleh_takaman: bool,
 }
 
 fn main() {
-    std::process::exit(utama());
+    let utas = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(utama)
+        .expect("gagal membuat utas utama");
+    std::process::exit(utas.join().unwrap_or(2));
 }
 
 fn utama() -> i32 {
@@ -34,7 +39,7 @@ fn utama() -> i32 {
         bantuan();
         return if arg.is_empty() { 2 } else { 0 };
     }
-    let perintah = if matches!(arg[0].as_str(), "bangun" | "periksa" | "ir" | "jalan" | "jalankan" | "bukti") {
+    let perintah = if matches!(arg[0].as_str(), "bangun" | "periksa" | "ir" | "jalan" | "jalankan" | "bukti" | "--smt") {
         arg[0].clone()
     } else {
         "bangun".to_string()
@@ -45,7 +50,7 @@ fn utama() -> i32 {
         bantuan();
         return 2;
     };
-    let mut opsi = Opsi { berkas, keluaran: None, bebas_jaga: false, simpan_ir: false, opt: 2 };
+    let mut opsi = Opsi { berkas, keluaran: None, bebas_jaga: false, simpan_ir: false, opt: 2, boleh_takaman: false };
     let mut i = 0;
     while i < sisa.len() {
         match sisa[i].as_str() {
@@ -56,6 +61,7 @@ fn utama() -> i32 {
                 }
             }
             "--bebas-jaga" => opsi.bebas_jaga = true,
+            "--boleh-takaman" => opsi.boleh_takaman = true,
             "--simpan-ir" => opsi.simpan_ir = true,
             "--opt" => {
                 i += 1;
@@ -68,7 +74,7 @@ fn utama() -> i32 {
     match perintah.as_str() {
         "periksa" => periksa_saja(&opsi),
         "ir" => cetak_ir(&opsi),
-        "bukti" => buktikan(&opsi),
+        "bukti" | "--smt" => buktikan(&opsi),
         "jalan" => tafsirkan(&opsi),
         "jalankan" => jalankan(&opsi),
         _ => bangun(&opsi),
@@ -91,12 +97,14 @@ PERINTAH LAIN:
     periksa    periksa tipe, kepemilikan, dan peminjaman (cepat)
     ir         tampilkan LLVM IR ke stdout
     bukti      buktikan kontrak perlu/jamin/invarian/tegas dengan Z3
+    --smt      nama lain untuk `bukti` (SMT/Z3)
 
 OPSI:
     -o <jalur>   nama berkas keluaran (mode kompilasi)
     --opt N      tingkat optimasi LLVM 0..3 (bawaan 2)
     --simpan-ir  simpan berkas .ll di samping biner
     --bebas-jaga buang penjaga runtime saat kompilasi, hanya bila semua tugas terbukti
+    --boleh-takaman izinkan blok `takaman` (mematikan penjaga runtime di blok itu)
 
 Contoh:
     nusa jalan  contoh/pencarian.ns
@@ -116,7 +124,33 @@ fn cetak_diag(d: &[diag::Diagnostik], sumber: &str) {
     }
 }
 
-fn muat(berkas: &str) -> Result<Dimuat, i32> {
+fn muat(o: &Opsi) -> Result<Dimuat, i32> {
+    let berkas = &o.berkas;
+    let mut prog = ast::Prog::default();
+    let mut dikunjungi = std::collections::HashSet::new();
+    muat_berkas(berkas, &mut prog, &mut dikunjungi)?;
+    let sumber = std::fs::read_to_string(berkas).unwrap_or_default();
+    let s = sema::periksa(&prog, berkas, o.boleh_takaman);
+    if diag::ada_galat(&s.diag) {
+        cetak_diag(&s.diag, &sumber);
+        return Err(1);
+    }
+    if !s.diag.is_empty() {
+        cetak_diag(&s.diag, &sumber);
+    }
+    Ok(Dimuat { prog, sema: s })
+}
+
+fn muat_berkas(
+    berkas: &str,
+    prog: &mut ast::Prog,
+    dikunjungi: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Result<(), i32> {
+    let kunci = std::fs::canonicalize(berkas)
+        .unwrap_or_else(|_| std::path::PathBuf::from(berkas));
+    if !dikunjungi.insert(kunci) {
+        return Ok(());
+    }
     let sumber = match std::fs::read_to_string(berkas) {
         Ok(s) => s,
         Err(e) => {
@@ -132,19 +166,41 @@ fn muat(berkas: &str) -> Result<Dimuat, i32> {
         cetak_diag(&d, &sumber);
         return Err(1);
     }
-    let s = sema::periksa(&u.prog, berkas);
-    if diag::ada_galat(&s.diag) {
-        cetak_diag(&s.diag, &sumber);
-        return Err(1);
+    let induk = std::path::Path::new(berkas).parent().unwrap_or_else(|| std::path::Path::new("."));
+    for nama in &u.prog.impor {
+        let mentah = std::path::Path::new(nama);
+        let jalur = if mentah.is_absolute() {
+            mentah.to_path_buf()
+        } else {
+            induk.join(mentah)
+        };
+        let jalur = if jalur.extension().is_some() {
+            jalur
+        } else {
+            jalur.with_extension("ns")
+        };
+        if !jalur.is_file() {
+            let sp = ast::Span::default();
+            let d = diag::Diagnostik::galat(
+                berkas,
+                sp,
+                format!("modul `{}` tidak ditemukan (dicari di `{}`)", nama, jalur.display()),
+                "E0116",
+            );
+            cetak_diag(&[d], &sumber);
+            return Err(1);
+        }
+        muat_berkas(&jalur.to_string_lossy(), prog, dikunjungi)?;
     }
-    if !s.diag.is_empty() {
-        cetak_diag(&s.diag, &sumber);
-    }
-    Ok(Dimuat { prog: u.prog, sema: s })
+    prog.fungsi.extend(u.prog.fungsi);
+    prog.struk.extend(u.prog.struk);
+    prog.enumerasi.extend(u.prog.enumerasi);
+    prog.alias.extend(u.prog.alias);
+    Ok(())
 }
 
 fn periksa_saja(o: &Opsi) -> i32 {
-    match muat(&o.berkas) {
+    match muat(o) {
         Ok(d) => {
             println!("nusa: `{}` lolos pemeriksaan tipe, kepemilikan, dan peminjaman", o.berkas);
             println!("  {} fungsi, {} struk, {} enumerasi", d.prog.fungsi.len(), d.prog.struk.len(), d.prog.enumerasi.len());
@@ -155,7 +211,7 @@ fn periksa_saja(o: &Opsi) -> i32 {
 }
 
 fn cetak_ir(o: &Opsi) -> i32 {
-    match muat(&o.berkas) {
+    match muat(o) {
         Ok(d) => {
             let cg = llvm::Codegen::baru(&d.prog, &d.sema, llvm::Opsi { jaga: true, opt: "2" });
             print!("{}", cg.hasil());
@@ -166,7 +222,7 @@ fn cetak_ir(o: &Opsi) -> i32 {
 }
 
 fn buktikan(o: &Opsi) -> i32 {
-    let d = match muat(&o.berkas) {
+    let d = match muat(o) {
         Ok(d) => d,
         Err(k) => return k,
     };
@@ -181,7 +237,7 @@ fn buktikan(o: &Opsi) -> i32 {
 
 fn jalankan(o: &Opsi) -> i32 {
     let keluar = std::env::temp_dir().join(format!("nusa-jalan-{}-{}", std::process::id(), waktu()));
-    let o2 = Opsi { berkas: o.berkas.clone(), keluaran: Some(keluar.to_string_lossy().to_string()), bebas_jaga: o.bebas_jaga, simpan_ir: false, opt: o.opt };
+    let o2 = Opsi { berkas: o.berkas.clone(), keluaran: Some(keluar.to_string_lossy().to_string()), bebas_jaga: o.bebas_jaga, simpan_ir: false, opt: o.opt, boleh_takaman: o.boleh_takaman };
     let kode = bangun_diam(&o2);
     if kode != 0 {
         return kode;
@@ -259,7 +315,7 @@ fn objek_runtime() -> Result<std::path::PathBuf, String> {
 }
 
 fn tafsirkan(o: &Opsi) -> i32 {
-    let d = match muat(&o.berkas) {
+    let d = match muat(o) {
         Ok(d) => d,
         Err(k) => return k,
     };
@@ -270,7 +326,7 @@ fn tafsirkan(o: &Opsi) -> i32 {
 
 fn bangun_diam(o: &Opsi) -> i32 {
     let t0 = Instant::now();
-    let d = match muat(&o.berkas) {
+    let d = match muat(o) {
         Ok(d) => d,
         Err(k) => return k,
     };

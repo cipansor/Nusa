@@ -6,7 +6,7 @@ use crate::diag::Diagnostik;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
     Ident(String),
-    Bil(i64),
+    Bil(i128),
     Char(u8),
     Pecah(f64),
     Teks(String),
@@ -20,6 +20,9 @@ pub enum Tok {
     Selama,
     Untuk,
     Dalam,
+    Dari,
+    Sampai,
+    Ulang,
     Henti,
     Lanjut,
     Dan,
@@ -37,8 +40,10 @@ pub enum Tok {
     Jamin,
     Invarian,
     Impor,
+    Takaman,
     Sebagai,
     Luar,
+    Jenis,
 
     Plus,
     Minus,
@@ -90,6 +95,9 @@ impl Tok {
             Tok::Selama => "`selama`".into(),
             Tok::Untuk => "`untuk`".into(),
             Tok::Dalam => "`dalam`".into(),
+            Tok::Dari => "`dari`".into(),
+            Tok::Sampai => "`sampai`".into(),
+            Tok::Ulang => "`ulang`".into(),
             Tok::Henti => "`henti`".into(),
             Tok::Lanjut => "`lanjut`".into(),
             Tok::Dan => "`dan`".into(),
@@ -109,6 +117,8 @@ impl Tok {
             Tok::Impor => "`impor`".into(),
             Tok::Sebagai => "`sebagai`".into(),
             Tok::Luar => "`luar`".into(),
+            Tok::Jenis => "`jenis`".into(),
+            Tok::Takaman => "`takaman`".into(),
             Tok::Plus => "`+`".into(),
             Tok::Minus => "`-`".into(),
             Tok::Bintang => "`*`".into(),
@@ -146,36 +156,53 @@ impl Tok {
 pub const KATA_KUNCI: &[(&str, Tok)] = &[
     ("fungsi", Tok::Fungsi),
     ("fn", Tok::Fungsi),
+    ("fng", Tok::Fungsi),
     ("tetap", Tok::Tetap),
     ("tet", Tok::Tetap),
+    ("ttp", Tok::Tetap),
     ("ubah", Tok::Ubah),
     ("ubh", Tok::Ubah),
+    ("var", Tok::Ubah),
     ("kembali", Tok::Kembali),
+    ("kembalikan", Tok::Kembali),
     ("krb", Tok::Kembali),
     ("jika", Tok::Jika),
     ("jik", Tok::Jika),
     ("selain", Tok::Selain),
     ("sln", Tok::Selain),
+    ("lain", Tok::Selain),
     ("selama", Tok::Selama),
     ("slm", Tok::Selama),
     ("untuk", Tok::Untuk),
     ("utk", Tok::Untuk),
     ("dalam", Tok::Dalam),
     ("dlm", Tok::Dalam),
+    ("dari", Tok::Dari),
+    ("dr", Tok::Dari),
+    ("sampai", Tok::Sampai),
+    ("sp", Tok::Sampai),
+    ("ulang", Tok::Ulang),
+    ("ul", Tok::Ulang),
     ("henti", Tok::Henti),
+    ("hentikan", Tok::Henti),
     ("hnt", Tok::Henti),
     ("lanjut", Tok::Lanjut),
+    ("lanjutkan", Tok::Lanjut),
     ("lnj", Tok::Lanjut),
+    ("prk", Tok::Tegas),
     ("dan", Tok::Dan),
     ("dn", Tok::Dan),
     ("atau", Tok::Atau),
     ("at", Tok::Atau),
     ("bukan", Tok::Bukan),
     ("bk", Tok::Bukan),
+    ("bkn", Tok::Bukan),
     ("benar", Tok::Benar),
     ("bnr", Tok::Benar),
+    ("bn", Tok::Benar),
     ("salah", Tok::Salah),
     ("slh", Tok::Salah),
+    ("sl", Tok::Salah),
     ("struk", Tok::Struk),
     ("str", Tok::Struk),
     ("enumerasi", Tok::Enumerasi),
@@ -196,10 +223,30 @@ pub const KATA_KUNCI: &[(&str, Tok)] = &[
     ("inv", Tok::Invarian),
     ("impor", Tok::Impor),
     ("imp", Tok::Impor),
+    ("takaman", Tok::Takaman),
+    ("ta", Tok::Takaman),
+    ("unsafe", Tok::Takaman),
     ("sebagai", Tok::Sebagai),
     ("sbg", Tok::Sebagai),
     ("luar", Tok::Luar),
     ("lr", Tok::Luar),
+    ("jenis", Tok::Jenis),
+    ("jns", Tok::Jenis),
+    // Sinonim bergaya PR #1 agar program lama/asing tetap terbaca.
+    ("tp", Tok::Tetap),
+    ("ub", Tok::Ubah),
+    ("kmb", Tok::Kembali),
+    ("jk", Tok::Jika),
+    ("ln", Tok::Selain),
+    ("lainnya", Tok::Selain),
+    ("ht", Tok::Henti),
+    ("syarat", Tok::Perlu),
+    ("syr", Tok::Perlu),
+    ("periksa", Tok::Tegas),
+    ("bentuk", Tok::Struk),
+    ("bt", Tok::Struk),
+    ("pilihan", Tok::Enumerasi),
+    ("plh", Tok::Enumerasi),
 ];
 
 pub fn kata_kunci(kata: &str) -> Option<Tok> {
@@ -242,6 +289,12 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
         let c = karakter[i];
         if c.is_whitespace() {
             maju!();
+            continue;
+        }
+        if c == '#' {
+            while i < karakter.len() && karakter[i] != '\n' {
+                i += 1;
+            }
             continue;
         }
         if c == '/' && lihat!(1) == Some('/') {
@@ -377,15 +430,14 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
                 }
             }
             let mentah: String = karakter[awal..i].iter().filter(|c| **c != '_').collect();
-            let digit = if heks {
-                &mentah[2..]
-            } else if mentah.len() > 1 && (mentah.starts_with("0b") || mentah.starts_with("0B") || mentah.starts_with("0o") || mentah.starts_with("0O")) {
-                &mentah[2..]
-            } else {
-                &mentah[..]
-            };
+            let berawalan = mentah.len() > 1
+                && (mentah.starts_with("0b")
+                    || mentah.starts_with("0B")
+                    || mentah.starts_with("0o")
+                    || mentah.starts_with("0O"));
+            let digit = if heks || berawalan { &mentah[2..] } else { &mentah[..] };
             let sp = Span::baru(mulai.baris, mulai.kol, (i - awal) as u32);
-            match i64::from_str_radix(digit, basis) {
+            match i128::from_str_radix(digit, basis) {
                 Ok(v) => token.push((Tok::Bil(v), sp)),
                 Err(_) => diag.push(Diagnostik::galat(
                     nama_berkas,
@@ -423,7 +475,6 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
                 }
             } else {
                 let ch = maju!();
-                ch as u32;
                 if ch.len_utf8() > 1 {
                     diag.push(Diagnostik::galat(nama_berkas, mulai, "huruf harus satu byte ASCII".into(), "E0009"));
                 }

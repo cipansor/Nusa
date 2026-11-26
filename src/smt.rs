@@ -96,6 +96,7 @@ struct Vc<'a> {
     catatan: Vec<String>,
     versi: HashMap<String, u32>,
     spek: bool,
+    lewat: Option<String>,
 }
 
 pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
@@ -127,11 +128,16 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
             catatan: Vec::new(),
             versi: HashMap::new(),
             spek: false,
+            lewat: None,
         };
         let hasil = vc.jalankan();
-        lap.terbukti += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Terbukti).count();
-        lap.gagal += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Gagal).count();
-        lap.tidak_diketahui += hasil.tugas.iter().filter(|t| t.hasil == Hasil::TidakDiketahui).count();
+        if hasil.dilewati.is_some() {
+            lap.dilewati += 1;
+        } else {
+            lap.terbukti += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Terbukti).count();
+            lap.gagal += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Gagal).count();
+            lap.tidak_diketahui += hasil.tugas.iter().filter(|t| t.hasil == Hasil::TidakDiketahui).count();
+        }
         lap.fungsi.push(hasil);
     }
     lap
@@ -274,7 +280,7 @@ impl<'a> Vc<'a> {
         HasilFungsi {
             nama: f.nama.clone(),
             tugas: std::mem::take(&mut self.tugas),
-            dilewati: None,
+            dilewati: self.lewat.clone(),
             catatan: std::mem::take(&mut self.catatan),
         }
     }
@@ -469,7 +475,11 @@ impl<'a> Vc<'a> {
             Stmt::Henti(_) | Stmt::Lanjut(_) => {
                 j.hidup = false;
             }
-            Stmt::Blok(b) => self.blok(b, j),
+            Stmt::Cocok { .. } => {
+                self.lewat = Some("`cocok` belum dimodelkan oleh verifier".into());
+                j.hidup = false;
+            }
+            Stmt::Blok(b) | Stmt::Takaman(b) => self.blok(b, j),
         }
     }
 
@@ -559,6 +569,10 @@ impl<'a> Vc<'a> {
                         let q = bagi_t(&x.term, &y.term);
                         let res = if *op == BinOp::Bagi { q } else { format!("(- {} (* {} {}))", x.term, y.term, q) };
                         Nl { term: res, ty: x.ty, panjang: None }
+                    }
+                    BinOp::GeserKiri | BinOp::GeserKanan => {
+                        self.lewat = Some("operator geser belum dimodelkan oleh verifier".into());
+                        Nl { term: x.term, ty: x.ty, panjang: None }
                     }
                     _ => Nl { term: "0".into(), ty: t, panjang: None },
                 }
@@ -679,7 +693,7 @@ impl<'a> Vc<'a> {
         }
         let argv: Vec<String> = argv_nl.iter().map(|x| x.term.clone()).collect();
         let _ = &argv;
-        let (params, hasil, bisa) = match (&sig, self.prog.fungsi.iter().find(|f| &f.nama == nama)) {
+        let (params, hasil, bisa) = match (&sig, self.prog.fungsi.iter().find(|f| f.nama == nama)) {
             (Some(s), Some(f)) => (
                 s.params.clone(),
                 s.hasil.clone(),
@@ -749,17 +763,18 @@ fn st_span(st: &Stmt) -> Span {
         | Stmt::Ikat { span, .. }
         | Stmt::Tugas { span, .. }
         | Stmt::Tegas { span, .. }
+        | Stmt::Cocok { span, .. }
         | Stmt::Henti(span)
         | Stmt::Lanjut(span)
         | Stmt::Kembali(_, span) => *span,
         Stmt::Ekspresi(e) => e.span,
-        Stmt::Blok(b) => b.span,
+        Stmt::Blok(b) | Stmt::Takaman(b) => b.span,
     }
 }
 
 fn num(v: i128) -> String {
     if v < 0 {
-        format!("(- {})", -(v as i128))
+        format!("(- {})", -v)
     } else {
         v.to_string()
     }

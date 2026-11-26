@@ -10,6 +10,7 @@ void nusa_gagal(int32_t kode, int32_t baris) {
     case 1: pesan = "luber bilangan (overflow)"; break;
     case 2: pesan = "indeks di luar batas"; break;
     case 3: pesan = "pembagian dengan nol"; break;
+    case 4: pesan = "geser tidak sah"; break;
     default: break;
     }
     fprintf(stderr, "Nusa: %s pada baris %d\n", pesan, (int)baris);
@@ -41,6 +42,20 @@ void nusa_daftar_tambah(void **data, int64_t *len, int64_t *cap, void *elemen, i
         *cap = baru;
     }
     memcpy((char *)(*data) + (*len) * ukuran, elemen, (size_t)ukuran);
+    (*len)++;
+}
+
+void nusa_daftar_sisip(void **data, int64_t *len, int64_t *cap, int64_t idx, void *elemen, int64_t ukuran) {
+    if (idx < 0 || idx > *len) nusa_gagal(2, 0);
+    if (*len == *cap) {
+        int64_t baru = *cap ? *cap * 2 : 4;
+        void *p = realloc(*data, (size_t)(baru * ukuran));
+        if (!p) nusa_gagal(4, 0);
+        *data = p;
+        *cap = baru;
+    }
+    memmove((char *)(*data) + (idx + 1) * ukuran, (char *)(*data) + idx * ukuran, (size_t)((*len - idx) * ukuran));
+    memcpy((char *)(*data) + idx * ukuran, elemen, (size_t)ukuran);
     (*len)++;
 }
 

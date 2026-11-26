@@ -97,6 +97,8 @@ pub enum BinOp {
     KecilSama,
     Besar,
     BesarSama,
+    GeserKiri,
+    GeserKanan,
 }
 
 impl BinOp {
@@ -115,6 +117,8 @@ impl BinOp {
             BinOp::KecilSama => "<=",
             BinOp::Besar => ">",
             BinOp::BesarSama => ">=",
+            BinOp::GeserKiri => "<<",
+            BinOp::GeserKanan => ">>",
         }
     }
 }
@@ -208,6 +212,13 @@ pub enum Stmt {
     Henti(Span),
     Lanjut(Span),
     Blok(Block),
+    Takaman(Block),
+    Cocok {
+        nilai: Expr,
+        kasus: Vec<(String, Block)>,
+        lainnya: Option<Block>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -243,10 +254,19 @@ pub struct Enumerasi {
     pub span: Span,
 }
 
+#[derive(Clone, Debug)]
+pub struct Alias {
+    pub nama: String,
+    pub ty: Ty,
+    #[allow(dead_code)]
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Prog {
     pub fungsi: Vec<Fungsi>,
     pub struk: Vec<Struk>,
     pub enumerasi: Vec<Enumerasi>,
+    pub alias: Vec<Alias>,
     pub impor: Vec<String>,
 }

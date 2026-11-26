@@ -70,17 +70,32 @@ impl Diagnostik {
             let pad = " ".repeat(nomor.len());
             eprintln!("{} {}--> {}:{}:{}", pad, p, self.berkas, self.span.baris, self.span.kol);
             eprintln!("{} {}|", pad, p);
-            eprintln!("{}{} |{} {}", p, nomor, q, baris.replace('\t', " "));
+            // Jangan cetak baris sumber yang sangat panjang (berkas jahat):
+            // tampilkan jendela di sekitar lokasi galat saja.
+            let chars: Vec<char> = baris.chars().collect();
             let kol = self.span.kol as usize;
-            let pan = (self.span.panjang as usize).max(1);
-            let mut penunjuk = String::new();
-            for (idx, ch) in baris.chars().enumerate() {
-                if idx + 1 == kol {
-                    break;
-                }
-                penunjuk.push(if ch == '\t' { '\t' } else { ' ' });
+            let lebar = 120usize;
+            let mut mulai = kol.saturating_sub(40);
+            if mulai + lebar > chars.len() {
+                mulai = chars.len().saturating_sub(lebar);
             }
-            penunjuk.push_str(&"^".repeat(pan.min(baris.len().saturating_sub(kol) + 1).max(1)));
+            let akhir = (mulai + lebar).min(chars.len());
+            let awalan = mulai > 0;
+            let akhiran = akhir < chars.len();
+            let mut tampil = String::new();
+            if awalan {
+                tampil.push('…');
+            }
+            tampil.extend(&chars[mulai..akhir]);
+            if akhiran {
+                tampil.push('…');
+            }
+            let tampil = tampil.replace('\t', " ");
+            eprintln!("{}{} |{} {}", p, nomor, q, tampil);
+            let kol_tampil = kol.saturating_sub(mulai) + if awalan { 1 } else { 0 };
+            let pan = (self.span.panjang as usize).clamp(1, 40);
+            let mut penunjuk = " ".repeat(kol_tampil.saturating_sub(1));
+            penunjuk.push_str(&"^".repeat(pan.min(chars.len().saturating_sub(kol) + 1).max(1)));
             eprintln!("{} {}| {}{}{}", pad, p, p, penunjuk, q);
         } else {
             eprintln!("  --> {}:{}:{}", self.berkas, self.span.baris, self.span.kol);

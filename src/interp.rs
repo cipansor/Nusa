@@ -34,6 +34,8 @@ pub struct Mati {
 
 type Hasil<T> = Result<T, Mati>;
 
+const KEDALAMAN_MAKS: usize = 2_000;
+
 #[derive(Clone)]
 enum Aliran {
     Normal,
@@ -46,12 +48,13 @@ pub struct Interp<'a> {
     prog: &'a Prog,
     sema: &'a Sema,
     jaga: bool,
+    takaman: usize,
     lingkup: Vec<HashMap<String, Sel>>,
     kedalaman: usize,
 }
 
 pub fn jalan(prog: &Prog, sema: &Sema, jaga: bool) -> i32 {
-    let mut it = Interp { prog, sema, jaga, lingkup: vec![HashMap::new()], kedalaman: 0 };
+    let mut it = Interp { prog, sema, jaga, takaman: 0, lingkup: vec![HashMap::new()], kedalaman: 0 };
     let hasil = it.mulai();
     let _ = std::io::stdout().flush();
     match hasil {
@@ -90,13 +93,14 @@ impl<'a> Interp<'a> {
             1 => "luber bilangan (overflow)",
             2 => "indeks di luar batas",
             3 => "pembagian dengan nol",
+            4 => "geser tidak sah",
             _ => "pelanggaran runtime",
         };
         Mati { pesan: format!("{} pada baris {}", pesan, baris) }
     }
 
     fn jaga(&self, ok: bool, kode: u32, baris: u32) -> Hasil<()> {
-        if ok || !self.jaga {
+        if ok || !self.jaga || self.takaman > 0 {
             Ok(())
         } else {
             Err(self.pelanggaran(kode, baris))
@@ -212,6 +216,12 @@ impl<'a> Interp<'a> {
     fn bagi(&self, op: BinOp, a: i64, b: i64, t: &Ty, baris: u32) -> Hasil<i64> {
         let (x, y) = (Self::ke_i128(a, t), Self::ke_i128(b, t));
         self.jaga(y != 0, 3, baris)?;
+        if Self::bertanda(t) {
+            let (lo, _) = Self::rentang(t);
+            if x == lo && y == -1 {
+                return Err(self.pelanggaran(1, baris));
+            }
+        }
         let r = if Self::bertanda(t) {
             match x.checked_div(y) {
                 Some(q) if op == BinOp::Bagi => q,
@@ -373,7 +383,34 @@ impl<'a> Interp<'a> {
             }
             Stmt::Henti(_) => Ok(Aliran::Henti),
             Stmt::Lanjut(_) => Ok(Aliran::Lanjut),
+            Stmt::Cocok { nilai, kasus, lainnya, .. } => {
+                let v = self.eks(nilai)?;
+                let (enum_nama, indeks) = match v {
+                    Nilai::Varian { nama, indeks } => (nama, indeks),
+                    _ => return Err(self.mati("`cocok` memerlukan nilai enumerasi".into())),
+                };
+                let varian = self
+                    .sema
+                    .enumerasi
+                    .get(&enum_nama)
+                    .and_then(|e| e.varian.get(indeks).cloned());
+                for (nama, b) in kasus {
+                    if Some(nama.as_str()) == varian.as_deref() {
+                        return self.blok(b);
+                    }
+                }
+                match lainnya {
+                    Some(b) => self.blok(b),
+                    None => Err(self.mati("tidak ada `kasus` yang cocok".into())),
+                }
+            }
             Stmt::Blok(b) => self.blok(b),
+            Stmt::Takaman(b) => {
+                self.takaman += 1;
+                let r = self.blok(b);
+                self.takaman -= 1;
+                r
+            }
         }
     }
 
@@ -618,6 +655,29 @@ impl<'a> Interp<'a> {
         if *ty == Ty::Log {
             return self.banding(op, a, b);
         }
+        if matches!(op, BinOp::GeserKiri | BinOp::GeserKanan) {
+            let x = self.eks(a)?;
+            let y = self.eks(b)?;
+            let (p, q) = (self.ke_bulat(&x)?, self.ke_bulat(&y)?);
+            let lebar: i64 = match ty {
+                Ty::Bil8 | Ty::Nat8 => 8,
+                Ty::Bil32 => 32,
+                _ => 64,
+            };
+            self.jaga(q >= 0 && q < lebar, 4, baris)?;
+            let r: i128 = if op == BinOp::GeserKiri {
+                if Self::bertanda(ty) {
+                    (p as i128) << q
+                } else {
+                    ((p as u64) << q) as i128
+                }
+            } else if Self::bertanda(ty) {
+                (p >> q) as i128
+            } else {
+                ((p as u64) >> q) as i128
+            };
+            return Ok(Nilai::Bulat(Self::dari_i128(Self::lipat(r, ty), ty)));
+        }
         let x = self.eks(a)?;
         let y = self.eks(b)?;
         if *ty == Ty::Pecah {
@@ -767,6 +827,9 @@ impl<'a> Interp<'a> {
         }
         if *dari == Ty::Pecah {
             let f = self.ke_pecah(&v);
+            if f.is_nan() {
+                self.jaga(false, 1, baris)?;
+            }
             let x = f.trunc() as i128;
             let (lo, hi) = Self::rentang(ke);
             self.jaga(x >= lo && x <= hi, 1, baris)?;
@@ -798,7 +861,7 @@ impl<'a> Interp<'a> {
 
     fn panggil(&mut self, f: &'a Fungsi, args: &[Expr]) -> Hasil<Nilai> {
         self.kedalaman += 1;
-        if self.kedalaman > 10_000 {
+        if self.kedalaman >= KEDALAMAN_MAKS {
             self.kedalaman -= 1;
             return Err(self.mati("rekursi terlalu dalam".into()));
         }
@@ -964,7 +1027,7 @@ fn fmt_pecah(v: f64) -> String {
         return if v > 0.0 { "inf".into() } else { "-inf".into() };
     }
     let pangkat = v.abs().log10().floor() as i32;
-    if pangkat < -4 || pangkat >= 6 {
+    if !(-4..6).contains(&pangkat) {
         let mantissa = v / 10f64.powi(pangkat);
         let m = format!("{:.5}", mantissa);
         let m = m.trim_end_matches('0').trim_end_matches('.').to_string();
