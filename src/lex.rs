@@ -250,7 +250,10 @@ pub const KATA_KUNCI: &[(&str, Tok)] = &[
 ];
 
 pub fn kata_kunci(kata: &str) -> Option<Tok> {
-    KATA_KUNCI.iter().find(|(k, _)| *k == kata).map(|(_, t)| t.clone())
+    KATA_KUNCI
+        .iter()
+        .find(|(k, _)| *k == kata)
+        .map(|(_, t)| t.clone())
 }
 
 pub struct HasilLentik {
@@ -336,8 +339,7 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
 
         if c.is_ascii_alphabetic() || c == '_' {
             let awal = i;
-            while i < karakter.len()
-                && (karakter[i].is_ascii_alphanumeric() || karakter[i] == '_')
+            while i < karakter.len() && (karakter[i].is_ascii_alphanumeric() || karakter[i] == '_')
             {
                 maju!();
             }
@@ -391,18 +393,14 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
                 }
             }
             if !heks {
-                while i < karakter.len()
-                    && (karakter[i].is_ascii_digit() || karakter[i] == '_')
-                {
+                while i < karakter.len() && (karakter[i].is_ascii_digit() || karakter[i] == '_') {
                     maju!();
                 }
                 // pecahan: 1.5 tetapi bukan 1..3
-                if lihat!(0) == Some('.')
-                    && lihat!(1).map(|c| c.is_ascii_digit()).unwrap_or(false)
+                if lihat!(0) == Some('.') && lihat!(1).map(|c| c.is_ascii_digit()).unwrap_or(false)
                 {
                     maju!();
-                    while i < karakter.len()
-                        && (karakter[i].is_ascii_digit() || karakter[i] == '_')
+                    while i < karakter.len() && (karakter[i].is_ascii_digit() || karakter[i] == '_')
                     {
                         maju!();
                     }
@@ -435,7 +433,11 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
                     || mentah.starts_with("0B")
                     || mentah.starts_with("0o")
                     || mentah.starts_with("0O"));
-            let digit = if heks || berawalan { &mentah[2..] } else { &mentah[..] };
+            let digit = if heks || berawalan {
+                &mentah[2..]
+            } else {
+                &mentah[..]
+            };
             let sp = Span::baru(mulai.baris, mulai.kol, (i - awal) as u32);
             match i128::from_str_radix(digit, basis) {
                 Ok(v) => token.push((Tok::Bil(v), sp)),
@@ -452,7 +454,12 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
         if c == '\'' {
             maju!();
             if i >= karakter.len() {
-                diag.push(Diagnostik::galat(nama_berkas, mulai, "huruf tidak ditutup dengan `'`".into(), "E0008"));
+                diag.push(Diagnostik::galat(
+                    nama_berkas,
+                    mulai,
+                    "huruf tidak ditutup dengan `'`".into(),
+                    "E0008",
+                ));
                 continue;
             }
             let nilaich = if karakter[i] == '\\' {
@@ -469,21 +476,36 @@ pub fn lentik(sumber: &str, nama_berkas: &str) -> HasilLentik {
                     '\'' => b'\'',
                     '"' => b'"',
                     lain => {
-                        diag.push(Diagnostik::galat(nama_berkas, mulai, format!("escape `\\{}` tidak dikenal", lain), "E0006"));
+                        diag.push(Diagnostik::galat(
+                            nama_berkas,
+                            mulai,
+                            format!("escape `\\{}` tidak dikenal", lain),
+                            "E0006",
+                        ));
                         lain as u8
                     }
                 }
             } else {
                 let ch = maju!();
                 if ch.len_utf8() > 1 {
-                    diag.push(Diagnostik::galat(nama_berkas, mulai, "huruf harus satu byte ASCII".into(), "E0009"));
+                    diag.push(Diagnostik::galat(
+                        nama_berkas,
+                        mulai,
+                        "huruf harus satu byte ASCII".into(),
+                        "E0009",
+                    ));
                 }
                 ch as u8
             };
             if i < karakter.len() && karakter[i] == '\'' {
                 maju!();
             } else {
-                diag.push(Diagnostik::galat(nama_berkas, mulai, "huruf tidak ditutup dengan `'`".into(), "E0008"));
+                diag.push(Diagnostik::galat(
+                    nama_berkas,
+                    mulai,
+                    "huruf tidak ditutup dengan `'`".into(),
+                    "E0008",
+                ));
             }
             token.push((Tok::Char(nilaich), Span::baru(mulai.baris, mulai.kol, 3)));
             continue;

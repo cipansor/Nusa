@@ -60,15 +60,15 @@ impl Diagnostik {
         } else {
             ("", "")
         };
-        eprintln!(
-            "{}{}[{}]{}: {}",
-            p, label, self.kode, q, self.pesan
-        );
+        eprintln!("{}{}[{}]{}: {}", p, label, self.kode, q, self.pesan);
         let baris_ke = self.span.baris as usize;
         if let Some(baris) = sumber.lines().nth(baris_ke.saturating_sub(1)) {
             let nomor = format!("{}", baris_ke);
             let pad = " ".repeat(nomor.len());
-            eprintln!("{} {}--> {}:{}:{}", pad, p, self.berkas, self.span.baris, self.span.kol);
+            eprintln!(
+                "{} {}--> {}:{}:{}",
+                pad, p, self.berkas, self.span.baris, self.span.kol
+            );
             eprintln!("{} {}|", pad, p);
             // Jangan cetak baris sumber yang sangat panjang (berkas jahat):
             // tampilkan jendela di sekitar lokasi galat saja.
@@ -98,7 +98,10 @@ impl Diagnostik {
             penunjuk.push_str(&"^".repeat(pan.min(chars.len().saturating_sub(kol) + 1).max(1)));
             eprintln!("{} {}| {}{}{}", pad, p, p, penunjuk, q);
         } else {
-            eprintln!("  --> {}:{}:{}", self.berkas, self.span.baris, self.span.kol);
+            eprintln!(
+                "  --> {}:{}:{}",
+                self.berkas, self.span.baris, self.span.kol
+            );
         }
         if let Some(s) = &self.saran {
             eprintln!("  {}bantuan{}: {}", p, q, s);

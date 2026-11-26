@@ -9,12 +9,20 @@ pub struct Span {
 
 impl Span {
     pub fn baru(baris: u32, kol: u32, panjang: u32) -> Self {
-        Span { baris, kol, panjang }
+        Span {
+            baris,
+            kol,
+            panjang,
+        }
     }
     pub fn gabung(&self, lain: &Span) -> Span {
         let akhir = (lain.baris, lain.kol + lain.panjang);
         let akhir_self = (self.baris, self.kol + self.panjang);
-        let (b, k) = if akhir > akhir_self { akhir } else { akhir_self };
+        let (b, k) = if akhir > akhir_self {
+            akhir
+        } else {
+            akhir_self
+        };
         // panjang dihitung per baris; cukup untuk penunjuk satu baris.
         let panjang = if b == self.baris && b == lain.baris {
             k.saturating_sub(self.kol)
@@ -27,29 +35,38 @@ impl Span {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ty {
-    Bil,                     // i64
-    Bil32,                   // i32
-    Bil8,                    // i8
-    Nat,                     // u64
-    Nat8,                    // u8
-    Pecah,                   // f64
-    Log,                     // bool
-    Huruf,                   // u8 (huruf/byte)
-    Teks,                    // irisan byte immutable (&str)
-    Kosong,                  // unit
-    Array(Box<Ty>, usize),   // [T; N]
-    Irisan(Box<Ty>),         // [T]  (irisan/&[T])
+    Bil,                   // i64
+    Bil32,                 // i32
+    Bil8,                  // i8
+    Nat,                   // u64
+    Nat8,                  // u8
+    Pecah,                 // f64
+    Log,                   // bool
+    Huruf,                 // u8 (huruf/byte)
+    Teks,                  // irisan byte immutable (&str)
+    Kosong,                // unit
+    Array(Box<Ty>, usize), // [T; N]
+    Irisan(Box<Ty>),       // [T]  (irisan/&[T])
     Ref { ubah: bool, dalam: Box<Ty> },
-    Daftar(Box<Ty>),         // Daftar<T>
-    Nama(String),            // struk / enumerasi
+    Daftar(Box<Ty>), // Daftar<T>
+    Nama(String),    // struk / enumerasi
 }
 
 impl Ty {
     /// Tipe yang boleh disalin tanpa memindahkan kepemilikan.
     pub fn boleh_salin(&self) -> bool {
         match self {
-            Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Pecah | Ty::Log
-            | Ty::Huruf | Ty::Teks | Ty::Kosong | Ty::Ref { .. } => true,
+            Ty::Bil
+            | Ty::Bil32
+            | Ty::Bil8
+            | Ty::Nat
+            | Ty::Nat8
+            | Ty::Pecah
+            | Ty::Log
+            | Ty::Huruf
+            | Ty::Teks
+            | Ty::Kosong
+            | Ty::Ref { .. } => true,
             Ty::Array(dalam, _) => dalam.boleh_salin(),
             _ => false,
         }
@@ -146,13 +163,34 @@ pub enum ExprKind {
     Var(String),
     Biner(BinOp, Box<Expr>, Box<Expr>),
     Uner(UnOp, Box<Expr>),
-    Panggil { nama: String, args: Vec<Expr> },
-    Indeks { dasar: Box<Expr>, indeks: Box<Expr> },
-    Medan { dasar: Box<Expr>, nama: String },
-    Alamat { ubah: bool, dasar: Box<Expr> },
-    Sebagai { nilai: Box<Expr>, ty: Ty },
-    StrukLit { nama: String, medan: Vec<(String, Expr)> },
-    Varian { enumerasi: String, varian: String },
+    Panggil {
+        nama: String,
+        args: Vec<Expr>,
+    },
+    Indeks {
+        dasar: Box<Expr>,
+        indeks: Box<Expr>,
+    },
+    Medan {
+        dasar: Box<Expr>,
+        nama: String,
+    },
+    Alamat {
+        ubah: bool,
+        dasar: Box<Expr>,
+    },
+    Sebagai {
+        nilai: Box<Expr>,
+        ty: Ty,
+    },
+    StrukLit {
+        nama: String,
+        medan: Vec<(String, Expr)>,
+    },
+    Varian {
+        enumerasi: String,
+        varian: String,
+    },
     ArrayLit(Vec<Expr>),
 }
 

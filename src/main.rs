@@ -3,8 +3,8 @@
 
 mod ast;
 mod diag;
-mod lex;
 mod interp;
+mod lex;
 mod llvm;
 mod parse;
 mod sema;
@@ -39,18 +39,37 @@ fn utama() -> i32 {
         bantuan();
         return if arg.is_empty() { 2 } else { 0 };
     }
-    let perintah = if matches!(arg[0].as_str(), "bangun" | "periksa" | "ir" | "jalan" | "jalankan" | "bukti" | "--smt") {
+    let perintah = if matches!(
+        arg[0].as_str(),
+        "bangun" | "periksa" | "ir" | "jalan" | "jalankan" | "bukti" | "--smt"
+    ) {
         arg[0].clone()
     } else {
         "bangun".to_string()
     };
-    let sisa: Vec<String> = if perintah == arg[0] { arg[1..].to_vec() } else { arg.clone() };
-    let Some(berkas) = sisa.iter().find(|a| !a.starts_with('-') && a.ends_with(".ns")).cloned().or_else(|| sisa.first().cloned()) else {
+    let sisa: Vec<String> = if perintah == arg[0] {
+        arg[1..].to_vec()
+    } else {
+        arg.clone()
+    };
+    let Some(berkas) = sisa
+        .iter()
+        .find(|a| !a.starts_with('-') && a.ends_with(".ns"))
+        .cloned()
+        .or_else(|| sisa.first().cloned())
+    else {
         eprintln!("nusa: sebutkan berkas .ns\n");
         bantuan();
         return 2;
     };
-    let mut opsi = Opsi { berkas, keluaran: None, bebas_jaga: false, simpan_ir: false, opt: 2, boleh_takaman: false };
+    let mut opsi = Opsi {
+        berkas,
+        keluaran: None,
+        bebas_jaga: false,
+        simpan_ir: false,
+        opt: 2,
+        boleh_takaman: false,
+    };
     let mut i = 0;
     while i < sisa.len() {
         match sisa[i].as_str() {
@@ -146,8 +165,7 @@ fn muat_berkas(
     prog: &mut ast::Prog,
     dikunjungi: &mut std::collections::HashSet<std::path::PathBuf>,
 ) -> Result<(), i32> {
-    let kunci = std::fs::canonicalize(berkas)
-        .unwrap_or_else(|_| std::path::PathBuf::from(berkas));
+    let kunci = std::fs::canonicalize(berkas).unwrap_or_else(|_| std::path::PathBuf::from(berkas));
     if !dikunjungi.insert(kunci) {
         return Ok(());
     }
@@ -166,7 +184,9 @@ fn muat_berkas(
         cetak_diag(&d, &sumber);
         return Err(1);
     }
-    let induk = std::path::Path::new(berkas).parent().unwrap_or_else(|| std::path::Path::new("."));
+    let induk = std::path::Path::new(berkas)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     for nama in &u.prog.impor {
         let mentah = std::path::Path::new(nama);
         let jalur = if mentah.is_absolute() {
@@ -184,7 +204,11 @@ fn muat_berkas(
             let d = diag::Diagnostik::galat(
                 berkas,
                 sp,
-                format!("modul `{}` tidak ditemukan (dicari di `{}`)", nama, jalur.display()),
+                format!(
+                    "modul `{}` tidak ditemukan (dicari di `{}`)",
+                    nama,
+                    jalur.display()
+                ),
                 "E0116",
             );
             cetak_diag(&[d], &sumber);
@@ -202,8 +226,16 @@ fn muat_berkas(
 fn periksa_saja(o: &Opsi) -> i32 {
     match muat(o) {
         Ok(d) => {
-            println!("nusa: `{}` lolos pemeriksaan tipe, kepemilikan, dan peminjaman", o.berkas);
-            println!("  {} fungsi, {} struk, {} enumerasi", d.prog.fungsi.len(), d.prog.struk.len(), d.prog.enumerasi.len());
+            println!(
+                "nusa: `{}` lolos pemeriksaan tipe, kepemilikan, dan peminjaman",
+                o.berkas
+            );
+            println!(
+                "  {} fungsi, {} struk, {} enumerasi",
+                d.prog.fungsi.len(),
+                d.prog.struk.len(),
+                d.prog.enumerasi.len()
+            );
             0
         }
         Err(k) => k,
@@ -213,7 +245,14 @@ fn periksa_saja(o: &Opsi) -> i32 {
 fn cetak_ir(o: &Opsi) -> i32 {
     match muat(o) {
         Ok(d) => {
-            let cg = llvm::Codegen::baru(&d.prog, &d.sema, llvm::Opsi { jaga: true, opt: "2" });
+            let cg = llvm::Codegen::baru(
+                &d.prog,
+                &d.sema,
+                llvm::Opsi {
+                    jaga: true,
+                    opt: "2",
+                },
+            );
             print!("{}", cg.hasil());
             0
         }
@@ -236,8 +275,16 @@ fn buktikan(o: &Opsi) -> i32 {
 }
 
 fn jalankan(o: &Opsi) -> i32 {
-    let keluar = std::env::temp_dir().join(format!("nusa-jalan-{}-{}", std::process::id(), waktu()));
-    let o2 = Opsi { berkas: o.berkas.clone(), keluaran: Some(keluar.to_string_lossy().to_string()), bebas_jaga: o.bebas_jaga, simpan_ir: false, opt: o.opt, boleh_takaman: o.boleh_takaman };
+    let keluar =
+        std::env::temp_dir().join(format!("nusa-jalan-{}-{}", std::process::id(), waktu()));
+    let o2 = Opsi {
+        berkas: o.berkas.clone(),
+        keluaran: Some(keluar.to_string_lossy().to_string()),
+        bebas_jaga: o.bebas_jaga,
+        simpan_ir: false,
+        opt: o.opt,
+        boleh_takaman: o.boleh_takaman,
+    };
     let kode = bangun_diam(&o2);
     if kode != 0 {
         return kode;
@@ -262,7 +309,14 @@ fn waktu() -> u128 {
 
 fn jalur_alat(kandidat: &[&str]) -> Option<String> {
     for k in kandidat {
-        if Command::new(k).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false) {
+        if Command::new(k)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
             return Some(k.to_string());
         }
     }
@@ -273,7 +327,11 @@ fn dir_cache() -> std::path::PathBuf {
     let dasar = std::env::var("XDG_CACHE_HOME")
         .ok()
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".cache")))
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| std::path::PathBuf::from(h).join(".cache"))
+        })
         .unwrap_or_else(std::env::temp_dir);
     let d = dasi(dasar);
     let _ = std::fs::create_dir_all(&d);
@@ -319,7 +377,11 @@ fn tafsirkan(o: &Opsi) -> i32 {
         Ok(d) => d,
         Err(k) => return k,
     };
-    let _ = writeln!(std::io::stderr(), "nusa: menafsirkan `{}` (tanpa biner)", o.berkas);
+    let _ = writeln!(
+        std::io::stderr(),
+        "nusa: menafsirkan `{}` (tanpa biner)",
+        o.berkas
+    );
     let _ = std::io::stdout().flush();
     interp::jalan(&d.prog, &d.sema, true)
 }
@@ -338,7 +400,14 @@ fn bangun_diam(o: &Opsi) -> i32 {
             return 1;
         }
     }
-    let cg = llvm::Codegen::baru(&d.prog, &d.sema, llvm::Opsi { jaga: !o.bebas_jaga, opt: "2" });
+    let cg = llvm::Codegen::baru(
+        &d.prog,
+        &d.sema,
+        llvm::Opsi {
+            jaga: !o.bebas_jaga,
+            opt: "2",
+        },
+    );
     let ir = cg.hasil();
     let keluar = o
         .keluaran
@@ -364,10 +433,14 @@ fn bangun_diam(o: &Opsi) -> i32 {
     let obj = tmp.join("program.o");
     let mut cmd = Command::new(&alat);
     if alat.starts_with("llc") {
-        cmd.args(["-filetype=obj", "-relocation-model=pic", &format!("-O{}", o.opt)])
-            .arg(&ir_path)
-            .arg("-o")
-            .arg(&obj);
+        cmd.args([
+            "-filetype=obj",
+            "-relocation-model=pic",
+            &format!("-O{}", o.opt),
+        ])
+        .arg(&ir_path)
+        .arg("-o")
+        .arg(&obj);
     } else {
         cmd.args([&format!("-O{}", o.opt), "-c"])
             .arg(&ir_path)

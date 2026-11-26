@@ -24,7 +24,9 @@ fn jalankan(args: &[&str]) -> Output {
 }
 
 fn ada_llc() -> bool {
-    ["llc-19", "llc"].iter().any(|t| Command::new(t).arg("--version").output().is_ok())
+    ["llc-19", "llc"]
+        .iter()
+        .any(|t| Command::new(t).arg("--version").output().is_ok())
 }
 
 fn teks_keluar(o: &Output) -> String {
@@ -40,7 +42,11 @@ fn periksa(nama: &str, isi: &str, kode: &str) {
     let f = tulis(&d, "program.ns", isi);
     let o = jalankan(&["periksa", f.to_str().unwrap()]);
     assert!(!o.status.success(), "{nama}: seharusnya ditolak");
-    assert!(teks_galat(&o).contains(kode), "{nama}: kode {kode} tidak muncul:\n{}", teks_galat(&o));
+    assert!(
+        teks_galat(&o).contains(kode),
+        "{nama}: kode {kode} tidak muncul:\n{}",
+        teks_galat(&o)
+    );
 }
 
 /// Jalankan penafsir; bila LLVM tersedia, bandingkan dengan biner native.
@@ -48,14 +54,26 @@ fn sama_di_dua_mesin(nama: &str, isi: &str) -> String {
     let d = dir(nama);
     let f = tulis(&d, "program.ns", isi);
     let i = jalankan(&["jalan", f.to_str().unwrap()]);
-    assert!(i.status.success(), "{nama}: penafsir gagal:\n{}", teks_galat(&i));
+    assert!(
+        i.status.success(),
+        "{nama}: penafsir gagal:\n{}",
+        teks_galat(&i)
+    );
     let keluaran = teks_keluar(&i);
     if ada_llc() {
         let biner = d.join("program");
         let b = jalankan(&["bangun", f.to_str().unwrap(), "-o", biner.to_str().unwrap()]);
-        assert!(b.status.success(), "{nama}: bangun gagal:\n{}", teks_galat(&b));
+        assert!(
+            b.status.success(),
+            "{nama}: bangun gagal:\n{}",
+            teks_galat(&b)
+        );
         let run = Command::new(&biner).output().unwrap();
-        assert!(run.status.success(), "{nama}: biner gagal:\n{}", teks_galat(&run));
+        assert!(
+            run.status.success(),
+            "{nama}: biner gagal:\n{}",
+            teks_galat(&run)
+        );
         assert_eq!(keluaran, teks_keluar(&run), "{nama}: penafsir != biner");
     }
     keluaran
@@ -140,7 +158,11 @@ fungsi utama() -> bil {
     assert!(teks_galat(&i).contains("luber bilangan"));
     if ada_llc() {
         let b = d.join("program");
-        assert!(jalankan(&["bangun", f.to_str().unwrap(), "-o", b.to_str().unwrap()]).status.success());
+        assert!(
+            jalankan(&["bangun", f.to_str().unwrap(), "-o", b.to_str().unwrap()])
+                .status
+                .success()
+        );
         let r = Command::new(&b).output().unwrap();
         assert_eq!(r.status.code(), Some(1));
         assert!(teks_galat(&r).contains("luber bilangan"));
@@ -184,7 +206,13 @@ fungsi utama() -> bil {
     assert_eq!(teks_keluar(&i), "x=-9223372036854775808\n");
     if ada_llc() {
         let b = d.join("program");
-        let c = jalankan(&["bangun", f.to_str().unwrap(), "--boleh-takaman", "-o", b.to_str().unwrap()]);
+        let c = jalankan(&[
+            "bangun",
+            f.to_str().unwrap(),
+            "--boleh-takaman",
+            "-o",
+            b.to_str().unwrap(),
+        ]);
         assert!(c.status.success(), "{}", teks_galat(&c));
         let r = Command::new(&b).output().unwrap();
         assert!(r.status.success());

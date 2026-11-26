@@ -49,7 +49,15 @@ impl Laporan {
                 println!("  [ok]    {}: tidak ada tugas", f.nama);
                 continue;
             }
-            println!("  [{}] {}", if f.tugas.iter().all(|t| t.hasil == Hasil::Terbukti) { "ok" } else { "!!" }, f.nama);
+            println!(
+                "  [{}] {}",
+                if f.tugas.iter().all(|t| t.hasil == Hasil::Terbukti) {
+                    "ok"
+                } else {
+                    "!!"
+                },
+                f.nama
+            );
             for c in &f.catatan {
                 println!("          catatan: {}", c);
             }
@@ -100,7 +108,13 @@ struct Vc<'a> {
 }
 
 pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
-    let mut lap = Laporan { fungsi: Vec::new(), terbukti: 0, gagal: 0, tidak_diketahui: 0, dilewati: 0 };
+    let mut lap = Laporan {
+        fungsi: Vec::new(),
+        terbukti: 0,
+        gagal: 0,
+        tidak_diketahui: 0,
+        dilewati: 0,
+    };
     for f in &prog.fungsi {
         if f.luar {
             continue;
@@ -108,14 +122,26 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
         let mut alasan = None;
         for p in &f.params {
             if !boleh_verifikasi(&p.ty) {
-                alasan = Some(format!("parameter `{}` bertipe `{}` belum dimodelkan", p.nama, p.ty.sebutan()));
+                alasan = Some(format!(
+                    "parameter `{}` bertipe `{}` belum dimodelkan",
+                    p.nama,
+                    p.ty.sebutan()
+                ));
             }
         }
         if !boleh_verifikasi(&f.hasil) {
-            alasan = Some(format!("tipe hasil `{}` belum dimodelkan", f.hasil.sebutan()));
+            alasan = Some(format!(
+                "tipe hasil `{}` belum dimodelkan",
+                f.hasil.sebutan()
+            ));
         }
         if let Some(a) = &alasan {
-            lap.fungsi.push(HasilFungsi { nama: f.nama.clone(), tugas: vec![], dilewati: Some(a.clone()), catatan: vec![] });
+            lap.fungsi.push(HasilFungsi {
+                nama: f.nama.clone(),
+                tugas: vec![],
+                dilewati: Some(a.clone()),
+                catatan: vec![],
+            });
             lap.dilewati += 1;
             continue;
         }
@@ -134,9 +160,21 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
         if hasil.dilewati.is_some() {
             lap.dilewati += 1;
         } else {
-            lap.terbukti += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Terbukti).count();
-            lap.gagal += hasil.tugas.iter().filter(|t| t.hasil == Hasil::Gagal).count();
-            lap.tidak_diketahui += hasil.tugas.iter().filter(|t| t.hasil == Hasil::TidakDiketahui).count();
+            lap.terbukti += hasil
+                .tugas
+                .iter()
+                .filter(|t| t.hasil == Hasil::Terbukti)
+                .count();
+            lap.gagal += hasil
+                .tugas
+                .iter()
+                .filter(|t| t.hasil == Hasil::Gagal)
+                .count();
+            lap.tidak_diketahui += hasil
+                .tugas
+                .iter()
+                .filter(|t| t.hasil == Hasil::TidakDiketahui)
+                .count();
         }
         lap.fungsi.push(hasil);
     }
@@ -145,7 +183,9 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
 
 fn boleh_verifikasi(t: &Ty) -> bool {
     match t {
-        Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf | Ty::Log | Ty::Kosong => true,
+        Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf | Ty::Log | Ty::Kosong => {
+            true
+        }
         Ty::Array(d, _) => boleh_verifikasi(d),
         Ty::Irisan(d) => boleh_verifikasi(d),
         _ => false,
@@ -167,7 +207,6 @@ fn sort(t: &Ty) -> &'static str {
     }
 }
 
-
 fn bool_ty(t: &Ty) -> bool {
     matches!(t, Ty::Log)
 }
@@ -186,7 +225,16 @@ impl<'a> Vc<'a> {
     fn segar(&mut self, nama: &str, ty: &Ty) -> String {
         let v = self.versi.entry(nama.to_string()).or_insert(0);
         *v += 1;
-        let bersih: String = nama.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        let bersih: String = nama
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
         let s = format!("{}_{}", bersih, *v);
         let srt = sort(ty);
         self.decl.push(format!("(declare-fun {} () {})", s, srt));
@@ -207,7 +255,12 @@ impl<'a> Vc<'a> {
     fn tugas(&mut self, deskripsi: String, baris: u32, harus: String, asumsi: &[String]) {
         let skrip = self.skrip(&harus, asumsi);
         let (hasil, model) = jalankan_z3(&skrip);
-        self.tugas.push(Tugas { deskripsi, baris, hasil, model });
+        self.tugas.push(Tugas {
+            deskripsi,
+            baris,
+            hasil,
+            model,
+        });
     }
 
     fn skrip(&self, harus: &str, asumsi: &[String]) -> String {
@@ -257,9 +310,20 @@ impl<'a> Vc<'a> {
             if let Some(d) = domain(&p.ty, &s) {
                 pc.push(d);
             }
-            env.insert(p.nama.clone(), Nl { term: s, ty: p.ty.clone(), panjang });
+            env.insert(
+                p.nama.clone(),
+                Nl {
+                    term: s,
+                    ty: p.ty.clone(),
+                    panjang,
+                },
+            );
         }
-        let mut j = Jalur { env, pc, hidup: true };
+        let mut j = Jalur {
+            env,
+            pc,
+            hidup: true,
+        };
         if ada_lompat(&f.badan) {
             return HasilFungsi {
                 nama: f.nama.clone(),
@@ -333,7 +397,9 @@ impl<'a> Vc<'a> {
                     self.eks(nilai, j);
                 }
             },
-            Stmt::Jika { kond, maka, lain, .. } => {
+            Stmt::Jika {
+                kond, maka, lain, ..
+            } => {
                 let k = self.eks(kond, j);
                 let mut a = j.clone();
                 a.pc.push(k.term.clone());
@@ -345,13 +411,23 @@ impl<'a> Vc<'a> {
                 }
                 *j = self.gabung(&k.term, a, b);
             }
-            Stmt::Selama { kond, invarian, badan, .. } => {
+            Stmt::Selama {
+                kond,
+                invarian,
+                badan,
+                ..
+            } => {
                 let lama_spek = self.spek_mulai();
                 let inv: Vec<String> = invarian.iter().map(|e| self.eks(e, j).term).collect();
                 self.spek_selesai(lama_spek);
                 let pc0 = j.pc.clone();
                 for i in &inv {
-                    self.tugas("invarian berlaku saat masuk loop".into(), st_span(st).baris, i.clone(), &pc0);
+                    self.tugas(
+                        "invarian berlaku saat masuk loop".into(),
+                        st_span(st).baris,
+                        i.clone(),
+                        &pc0,
+                    );
                 }
                 let diubah = ditugaskan(badan);
                 let mut h = j.clone();
@@ -366,11 +442,19 @@ impl<'a> Vc<'a> {
                         } else {
                             None
                         };
-                        h.env.insert(nama.clone(), Nl { term: baru, ty: lama.ty.clone(), panjang });
+                        h.env.insert(
+                            nama.clone(),
+                            Nl {
+                                term: baru,
+                                ty: lama.ty.clone(),
+                                panjang,
+                            },
+                        );
                     }
                 }
                 let lama_spek = self.spek_mulai();
-                let inv_h: Vec<String> = invarian.iter().map(|e| self.eks(e, &mut h).term).collect();
+                let inv_h: Vec<String> =
+                    invarian.iter().map(|e| self.eks(e, &mut h).term).collect();
                 self.spek_selesai(lama_spek);
                 for i in &inv_h {
                     h.pc.push(i.clone());
@@ -380,10 +464,18 @@ impl<'a> Vc<'a> {
                 bj.pc.push(k.term.clone());
                 self.blok(badan, &mut bj);
                 let lama_spek = self.spek_mulai();
-                let inv2: Vec<String> = invarian.iter().map(|e| self.eks(e, &mut bj.clone()).term).collect();
+                let inv2: Vec<String> = invarian
+                    .iter()
+                    .map(|e| self.eks(e, &mut bj.clone()).term)
+                    .collect();
                 self.spek_selesai(lama_spek);
                 for i in &inv2 {
-                    self.tugas("invarian dipertahankan oleh badan loop".into(), st_span(st).baris, i.clone(), &bj.pc);
+                    self.tugas(
+                        "invarian dipertahankan oleh badan loop".into(),
+                        st_span(st).baris,
+                        i.clone(),
+                        &bj.pc,
+                    );
                 }
                 let mut keluar_ = h;
                 keluar_.pc.push(format!("(not {})", k.term));
@@ -392,7 +484,14 @@ impl<'a> Vc<'a> {
                 }
                 *j = keluar_;
             }
-            Stmt::UntukRentang { nama, dari, sampai, inklusif, badan, span } => {
+            Stmt::UntukRentang {
+                nama,
+                dari,
+                sampai,
+                inklusif,
+                badan,
+                span,
+            } => {
                 let a = self.eks(dari, j);
                 let b = self.eks(sampai, j);
                 let awal = self.segar(&format!("{}_awal", nama), &Ty::Bil);
@@ -401,18 +500,38 @@ impl<'a> Vc<'a> {
                 h.pc.push(format!("(= {} {})", awal, a.term));
                 h.pc.push(format!("(= {} {})", akhir, b.term));
                 let i_sym = self.segar(nama, &Ty::Bil);
-                h.env.insert(nama.clone(), Nl { term: i_sym.clone(), ty: Ty::Bil, panjang: None });
-                let batas = if *inklusif { format!("(< {} (+ {} 1))", i_sym, akhir) } else { format!("(< {} {})", i_sym, akhir) };
+                h.env.insert(
+                    nama.clone(),
+                    Nl {
+                        term: i_sym.clone(),
+                        ty: Ty::Bil,
+                        panjang: None,
+                    },
+                );
+                let batas = if *inklusif {
+                    format!("(< {} (+ {} 1))", i_sym, akhir)
+                } else {
+                    format!("(< {} {})", i_sym, akhir)
+                };
                 let inv = vec![format!("(<= {} {})", awal, i_sym), batas];
                 for i in &inv {
                     h.pc.push(i.clone());
                 }
                 let mut bj = h.clone();
-                let kond = if *inklusif { format!("(<= {} {})", i_sym, akhir) } else { format!("(< {} {})", i_sym, akhir) };
+                let kond = if *inklusif {
+                    format!("(<= {} {})", i_sym, akhir)
+                } else {
+                    format!("(< {} {})", i_sym, akhir)
+                };
                 bj.pc.push(kond.clone());
                 self.blok(badan, &mut bj);
                 for i in &inv {
-                    self.tugas("invarian `untuk` dipertahankan".into(), span.baris, i.clone(), &bj.pc);
+                    self.tugas(
+                        "invarian `untuk` dipertahankan".into(),
+                        span.baris,
+                        i.clone(),
+                        &bj.pc,
+                    );
                 }
                 let mut keluar_ = h;
                 keluar_.pc.push(format!("(not {})", kond));
@@ -421,14 +540,20 @@ impl<'a> Vc<'a> {
                 }
                 *j = keluar_;
             }
-            Stmt::UntukIsi { nama, wadah, badan, .. } => {
+            Stmt::UntukIsi {
+                nama, wadah, badan, ..
+            } => {
                 let w = self.eks(wadah, j);
                 let len = self.panj(w.clone());
                 let i_sym = self.segar(&format!("{}_i", nama), &Ty::Bil);
                 let mut h = j.clone();
                 h.pc.push(format!("(<= 0 {})", i_sym));
                 h.pc.push(format!("(< {} {})", i_sym, len));
-                let el = Nl { term: format!("(select {} {})", w.term, i_sym), ty: elemen(&w.ty), panjang: None };
+                let el = Nl {
+                    term: format!("(select {} {})", w.term, i_sym),
+                    ty: elemen(&w.ty),
+                    panjang: None,
+                };
                 h.env.insert(nama.clone(), el);
                 let mut bj = h.clone();
                 bj.pc.push(format!("(< {} {})", i_sym, len));
@@ -452,7 +577,12 @@ impl<'a> Vc<'a> {
                         for c in &jamin {
                             let t = self.eks(c, &mut jj);
                             let pc = jj.pc.clone();
-                            self.tugas("jamin (postcondition) pada `kembali`".into(), e.span.baris, t.term, &pc);
+                            self.tugas(
+                                "jamin (postcondition) pada `kembali`".into(),
+                                e.span.baris,
+                                t.term,
+                                &pc,
+                            );
                         }
                         self.spek_selesai(lama_spek);
                     }
@@ -462,7 +592,12 @@ impl<'a> Vc<'a> {
             Stmt::Tegas { kond, .. } => {
                 let k = self.eks(kond, j);
                 let pc = j.pc.clone();
-                self.tugas("`tegas` harus selalu benar".into(), st_span(st).baris, k.term, &pc);
+                self.tugas(
+                    "`tegas` harus selalu benar".into(),
+                    st_span(st).baris,
+                    k.term,
+                    &pc,
+                );
             }
             Stmt::Ekspresi(e) => {
                 self.eks(e, j);
@@ -487,7 +622,11 @@ impl<'a> Vc<'a> {
         match (a.hidup, b.hidup) {
             (true, false) => a,
             (false, true) => b,
-            (false, false) => Jalur { env: a.env, pc: a.pc, hidup: false },
+            (false, false) => Jalur {
+                env: a.env,
+                pc: a.pc,
+                hidup: false,
+            },
             (true, true) => {
                 let mut env = Env::new();
                 for (nama, na) in &a.env {
@@ -495,11 +634,14 @@ impl<'a> Vc<'a> {
                         if na.term == nb.term {
                             env.insert(nama.clone(), na.clone());
                         } else {
-                            env.insert(nama.clone(), Nl {
-                                term: format!("(ite {} {} {})", k, na.term, nb.term),
-                                ty: na.ty.clone(),
-                                panjang: na.panjang.clone(),
-                            });
+                            env.insert(
+                                nama.clone(),
+                                Nl {
+                                    term: format!("(ite {} {} {})", k, na.term, nb.term),
+                                    ty: na.ty.clone(),
+                                    panjang: na.panjang.clone(),
+                                },
+                            );
                         }
                     } else {
                         env.insert(nama.clone(), na.clone());
@@ -507,7 +649,11 @@ impl<'a> Vc<'a> {
                 }
                 let mut pc = a.pc.clone();
                 pc.retain(|x| b.pc.contains(x));
-                Jalur { env, pc, hidup: true }
+                Jalur {
+                    env,
+                    pc,
+                    hidup: true,
+                }
             }
         }
     }
@@ -515,14 +661,38 @@ impl<'a> Vc<'a> {
     fn eks(&mut self, e: &Expr, j: &mut Jalur) -> Nl {
         let t = self.sema.tipe.get(&e.id).cloned().unwrap_or(Ty::Bil);
         match &e.kind {
-            ExprKind::Bil(v) => Nl { term: num(*v as i128), ty: t, panjang: None },
-            ExprKind::Huruf(v) => Nl { term: v.to_string(), ty: Ty::Huruf, panjang: None },
-            ExprKind::Log(b) => Nl { term: b.to_string(), ty: Ty::Log, panjang: None },
-            ExprKind::Pecah(_) => Nl { term: "0".into(), ty: Ty::Pecah, panjang: None },
-            ExprKind::Teks(_) => Nl { term: "0".into(), ty: Ty::Teks, panjang: None },
+            ExprKind::Bil(v) => Nl {
+                term: num(*v as i128),
+                ty: t,
+                panjang: None,
+            },
+            ExprKind::Huruf(v) => Nl {
+                term: v.to_string(),
+                ty: Ty::Huruf,
+                panjang: None,
+            },
+            ExprKind::Log(b) => Nl {
+                term: b.to_string(),
+                ty: Ty::Log,
+                panjang: None,
+            },
+            ExprKind::Pecah(_) => Nl {
+                term: "0".into(),
+                ty: Ty::Pecah,
+                panjang: None,
+            },
+            ExprKind::Teks(_) => Nl {
+                term: "0".into(),
+                ty: Ty::Teks,
+                panjang: None,
+            },
             ExprKind::Var(n) => match j.env.get(n) {
                 Some(x) => x.clone(),
-                None => Nl { term: "0".into(), ty: t, panjang: None },
+                None => Nl {
+                    term: "0".into(),
+                    ty: t,
+                    panjang: None,
+                },
             },
             ExprKind::Biner(op, a, b) => {
                 if bool_ty(&t) {
@@ -539,7 +709,11 @@ impl<'a> Vc<'a> {
                         BinOp::BesarSama => ">=",
                         _ => "=",
                     };
-                    return Nl { term: format!("({} {} {})", ins, x.term, y.term), ty: Ty::Log, panjang: None };
+                    return Nl {
+                        term: format!("({} {} {})", ins, x.term, y.term),
+                        ty: Ty::Log,
+                        panjang: None,
+                    };
                 }
                 let x = self.eks(a, j);
                 let y = self.eks(b, j);
@@ -553,38 +727,79 @@ impl<'a> Vc<'a> {
                         };
                         let res = format!("({} {} {})", ins, x.term, y.term);
                         let (lo, hi) = batas128(&x.ty);
-                        if self.spek { return Nl { term: res, ty: x.ty, panjang: None }; }
+                        if self.spek {
+                            return Nl {
+                                term: res,
+                                ty: x.ty,
+                                panjang: None,
+                            };
+                        }
                         self.tugas(
                             format!("tidak luber pada `{}`", op.simbol()),
                             e.span.baris,
                             format!("(and (<= {} {}) (<= {} {}))", num(lo), res, res, num(hi)),
                             &pc,
                         );
-                        Nl { term: res, ty: x.ty, panjang: None }
+                        Nl {
+                            term: res,
+                            ty: x.ty,
+                            panjang: None,
+                        }
                     }
                     BinOp::Bagi | BinOp::Sisa => {
                         if !self.spek {
-                            self.tugas("pembagi tidak nol".into(), e.span.baris, format!("(not (= {} 0))", y.term), &pc);
+                            self.tugas(
+                                "pembagi tidak nol".into(),
+                                e.span.baris,
+                                format!("(not (= {} 0))", y.term),
+                                &pc,
+                            );
                         }
                         let q = bagi_t(&x.term, &y.term);
-                        let res = if *op == BinOp::Bagi { q } else { format!("(- {} (* {} {}))", x.term, y.term, q) };
-                        Nl { term: res, ty: x.ty, panjang: None }
+                        let res = if *op == BinOp::Bagi {
+                            q
+                        } else {
+                            format!("(- {} (* {} {}))", x.term, y.term, q)
+                        };
+                        Nl {
+                            term: res,
+                            ty: x.ty,
+                            panjang: None,
+                        }
                     }
                     BinOp::GeserKiri | BinOp::GeserKanan => {
                         self.lewat = Some("operator geser belum dimodelkan oleh verifier".into());
-                        Nl { term: x.term, ty: x.ty, panjang: None }
+                        Nl {
+                            term: x.term,
+                            ty: x.ty,
+                            panjang: None,
+                        }
                     }
-                    _ => Nl { term: "0".into(), ty: t, panjang: None },
+                    _ => Nl {
+                        term: "0".into(),
+                        ty: t,
+                        panjang: None,
+                    },
                 }
             }
             ExprKind::Uner(op, a) => {
                 let x = self.eks(a, j);
                 match op {
-                    UnOp::Bukan => Nl { term: format!("(not {})", x.term), ty: Ty::Log, panjang: None },
+                    UnOp::Bukan => Nl {
+                        term: format!("(not {})", x.term),
+                        ty: Ty::Log,
+                        panjang: None,
+                    },
                     UnOp::Neg => {
                         let res = format!("(- 0 {})", x.term);
                         let (lo, hi) = batas128(&x.ty);
-                        if self.spek { return Nl { term: res, ty: x.ty, panjang: None }; }
+                        if self.spek {
+                            return Nl {
+                                term: res,
+                                ty: x.ty,
+                                panjang: None,
+                            };
+                        }
                         let pc = j.pc.clone();
                         self.tugas(
                             "tidak luber pada `-`".into(),
@@ -592,19 +807,31 @@ impl<'a> Vc<'a> {
                             format!("(and (<= {} {}) (<= {} {}))", num(lo), res, res, num(hi)),
                             &pc,
                         );
-                        Nl { term: res, ty: x.ty, panjang: None }
+                        Nl {
+                            term: res,
+                            ty: x.ty,
+                            panjang: None,
+                        }
                     }
                 }
             }
             ExprKind::Indeks { dasar, indeks } => {
                 let d = self.eks(dasar, j);
                 if !matches!(d.ty, Ty::Array(_, _) | Ty::Irisan(_)) {
-                    return Nl { term: "0".into(), ty: t, panjang: None };
+                    return Nl {
+                        term: "0".into(),
+                        ty: t,
+                        panjang: None,
+                    };
                 }
                 let i = self.eks(indeks, j);
                 let len = self.panj(d.clone());
                 if self.spek {
-                    return Nl { term: format!("(select {} {})", d.term, i.term), ty: elemen(&d.ty), panjang: None };
+                    return Nl {
+                        term: format!("(select {} {})", d.term, i.term),
+                        ty: elemen(&d.ty),
+                        panjang: None,
+                    };
                 }
                 let pc = j.pc.clone();
                 self.tugas(
@@ -613,22 +840,40 @@ impl<'a> Vc<'a> {
                     format!("(and (<= 0 {}) (< {} {}))", i.term, i.term, len),
                     &pc,
                 );
-                Nl { term: format!("(select {} {})", d.term, i.term), ty: elemen(&d.ty), panjang: None }
+                Nl {
+                    term: format!("(select {} {})", d.term, i.term),
+                    ty: elemen(&d.ty),
+                    panjang: None,
+                }
             }
             ExprKind::Sebagai { nilai, ty } => {
                 let x = self.eks(nilai, j);
                 if self.spek {
-                    return Nl { term: x.term, ty: ty.clone(), panjang: None };
+                    return Nl {
+                        term: x.term,
+                        ty: ty.clone(),
+                        panjang: None,
+                    };
                 }
                 let (lo, hi) = batas128(ty);
                 let pc = j.pc.clone();
                 self.tugas(
                     format!("nilai muat saat `sebagai {}`", ty.sebutan()),
                     e.span.baris,
-                    format!("(and (<= {} {}) (<= {} {}))", num(lo), x.term, x.term, num(hi)),
+                    format!(
+                        "(and (<= {} {}) (<= {} {}))",
+                        num(lo),
+                        x.term,
+                        x.term,
+                        num(hi)
+                    ),
                     &pc,
                 );
-                Nl { term: x.term, ty: ty.clone(), panjang: None }
+                Nl {
+                    term: x.term,
+                    ty: ty.clone(),
+                    panjang: None,
+                }
             }
             ExprKind::ArrayLit(isi) => {
                 let ty = t.clone();
@@ -641,11 +886,20 @@ impl<'a> Vc<'a> {
                     let v = self.eks(x, j);
                     j.pc.push(format!("(= (select {} {}) {})", nama, i, v.term));
                 }
-                Nl { term: nama, ty, panjang: Some(panjang) }
+                Nl {
+                    term: nama,
+                    ty,
+                    panjang: Some(panjang),
+                }
             }
-            ExprKind::StrukLit { .. } | ExprKind::Medan { .. } | ExprKind::Varian { .. } | ExprKind::Alamat { .. } => {
-                Nl { term: "0".into(), ty: t, panjang: None }
-            }
+            ExprKind::StrukLit { .. }
+            | ExprKind::Medan { .. }
+            | ExprKind::Varian { .. }
+            | ExprKind::Alamat { .. } => Nl {
+                term: "0".into(),
+                ty: t,
+                panjang: None,
+            },
             ExprKind::Panggil { nama, args } => self.panggil_eks(e, nama, args, j),
         }
     }
@@ -656,14 +910,22 @@ impl<'a> Vc<'a> {
         if nama == "gagal" {
             self.eks(&args[0], j);
             j.hidup = false;
-            return Nl { term: "0".into(), ty: Ty::Kosong, panjang: None };
+            return Nl {
+                term: "0".into(),
+                ty: Ty::Kosong,
+                panjang: None,
+            };
         }
         if let Some(Panggilan::Bawaan(_)) = jenis {
             match nama {
                 "panjang" => {
                     let a = self.eks(&args[0], j);
                     let l = self.panj(a);
-                    return Nl { term: l, ty: Ty::Bil, panjang: None };
+                    return Nl {
+                        term: l,
+                        ty: Ty::Bil,
+                        panjang: None,
+                    };
                 }
                 "ambil" => {
                     let a = self.eks(&args[0], j);
@@ -676,13 +938,21 @@ impl<'a> Vc<'a> {
                         format!("(and (<= 0 {}) (< {} {}))", i.term, i.term, len),
                         &pc,
                     );
-                    return Nl { term: format!("(select {} {})", a.term, i.term), ty: elemen(&a.ty), panjang: None };
+                    return Nl {
+                        term: format!("(select {} {})", a.term, i.term),
+                        ty: elemen(&a.ty),
+                        panjang: None,
+                    };
                 }
                 _ => {
                     for a in args {
                         self.eks(a, j);
                     }
-                    return Nl { term: "0".into(), ty: hasil_ty, panjang: None };
+                    return Nl {
+                        term: "0".into(),
+                        ty: hasil_ty,
+                        panjang: None,
+                    };
                 }
             }
         }
@@ -708,26 +978,53 @@ impl<'a> Vc<'a> {
         let fnama = format!("f_{}_{}", nama, params.len());
         let deklarasi = format!("(declare-fun {} (", fnama);
         if !self.decl.iter().any(|d| d.starts_with(&deklarasi)) {
-            let sargs: Vec<&str> = params.iter().map(|p| if bool_ty(p) { "Bool" } else { "Int" }).collect();
+            let sargs: Vec<&str> = params
+                .iter()
+                .map(|p| if bool_ty(p) { "Bool" } else { "Int" })
+                .collect();
             let shasil = if bool_ty(&hasil) { "Bool" } else { "Int" };
-            let argsrt = if sargs.is_empty() { String::new() } else { format!(" ({})", sargs.join(" ")) };
-            self.decl.push(format!("(declare-fun {}{} {})", fnama, argsrt, shasil));
+            let argsrt = if sargs.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", sargs.join(" "))
+            };
+            self.decl
+                .push(format!("(declare-fun {}{} {})", fnama, argsrt, shasil));
         }
         let res = self.segar(&format!("{}_hasil", nama), &hasil);
         if bisa {
             let mut jj = j.clone();
             if let Some(f) = self.prog.fungsi.iter().find(|f| f.nama == *nama) {
                 for (p, v) in f.params.iter().zip(argv_nl.iter()) {
-                    jj.env.insert(p.nama.clone(), Nl { term: v.term.clone(), ty: p.ty.clone(), panjang: v.panjang.clone() });
+                    jj.env.insert(
+                        p.nama.clone(),
+                        Nl {
+                            term: v.term.clone(),
+                            ty: p.ty.clone(),
+                            panjang: v.panjang.clone(),
+                        },
+                    );
                 }
-                jj.env.insert("hasil".into(), Nl { term: res.clone(), ty: hasil.clone(), panjang: None });
+                jj.env.insert(
+                    "hasil".into(),
+                    Nl {
+                        term: res.clone(),
+                        ty: hasil.clone(),
+                        panjang: None,
+                    },
+                );
                 let perlu = f.perlu.clone();
                 let jamin = f.jamin.clone();
                 let lama_spek = self.spek_mulai();
                 for e in &perlu {
                     let t = self.eks(e, &mut jj);
                     let pc = jj.pc.clone();
-                    self.tugas(format!("prasyarat `{}` saat dipanggil", nama), e.span.baris, t.term, &pc);
+                    self.tugas(
+                        format!("prasyarat `{}` saat dipanggil", nama),
+                        e.span.baris,
+                        t.term,
+                        &pc,
+                    );
                 }
                 for e in &jamin {
                     let t = self.eks(e, &mut jj);
@@ -736,7 +1033,11 @@ impl<'a> Vc<'a> {
                 self.spek_selesai(lama_spek);
             }
         }
-        Nl { term: res, ty: hasil, panjang: None }
+        Nl {
+            term: res,
+            ty: hasil,
+            panjang: None,
+        }
     }
 }
 
@@ -796,14 +1097,23 @@ fn batas128(t: &Ty) -> (i128, i128) {
 fn domain(t: &Ty, term: &str) -> Option<String> {
     if yg_bulat(t) {
         let (lo, hi) = batas128(t);
-        Some(format!("(and (<= {} {}) (<= {} {}))", num(lo), term, term, num(hi)))
+        Some(format!(
+            "(and (<= {} {}) (<= {} {}))",
+            num(lo),
+            term,
+            term,
+            num(hi)
+        ))
     } else {
         None
     }
 }
 
 fn yg_bulat(t: &Ty) -> bool {
-    matches!(t, Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf)
+    matches!(
+        t,
+        Ty::Bil | Ty::Bil32 | Ty::Bil8 | Ty::Nat | Ty::Nat8 | Ty::Huruf
+    )
 }
 
 fn bagi_t(a: &str, b: &str) -> String {
@@ -840,7 +1150,9 @@ fn kumpul_tugas(b: &Block, s: &mut HashSet<String>) {
                     kumpul_tugas(l, s);
                 }
             }
-            Stmt::Selama { badan, .. } | Stmt::UntukRentang { badan, .. } | Stmt::UntukIsi { badan, .. } => {
+            Stmt::Selama { badan, .. }
+            | Stmt::UntukRentang { badan, .. }
+            | Stmt::UntukIsi { badan, .. } => {
                 kumpul_tugas(badan, s);
             }
             Stmt::Blok(b) => kumpul_tugas(b, s),
@@ -852,15 +1164,20 @@ fn kumpul_tugas(b: &Block, s: &mut HashSet<String>) {
 fn ada_lompat(b: &Block) -> bool {
     b.stmts.iter().any(|s| match s {
         Stmt::Henti(_) | Stmt::Lanjut(_) => true,
-        Stmt::Jika { maka, lain, .. } => ada_lompat(maka) || lain.as_ref().map(ada_lompat).unwrap_or(false),
-        Stmt::Selama { badan, .. } | Stmt::UntukRentang { badan, .. } | Stmt::UntukIsi { badan, .. } => ada_lompat(badan),
+        Stmt::Jika { maka, lain, .. } => {
+            ada_lompat(maka) || lain.as_ref().map(ada_lompat).unwrap_or(false)
+        }
+        Stmt::Selama { badan, .. }
+        | Stmt::UntukRentang { badan, .. }
+        | Stmt::UntukIsi { badan, .. } => ada_lompat(badan),
         Stmt::Blok(b) => ada_lompat(b),
         _ => false,
     })
 }
 
 fn jalankan_z3(skrip: &str) -> (Hasil, Option<String>) {
-    let tmp = std::env::temp_dir().join(format!("nusa-vc-{}-{}.smt2", std::process::id(), counter()));
+    let tmp =
+        std::env::temp_dir().join(format!("nusa-vc-{}-{}.smt2", std::process::id(), counter()));
     if std::env::var("NUSA_SMT").is_ok() {
         let dbg = std::env::temp_dir().join(format!("nusa-dbg-{}.smt2", counter()));
         let _ = std::fs::write(&dbg, skrip);
@@ -894,7 +1211,10 @@ fn jalankan_z3(skrip: &str) -> (Hasil, Option<String>) {
                     .replace(['(', ')'], " ");
                 (Hasil::Gagal, Some(model.trim().to_string()))
             } else {
-                (Hasil::TidakDiketahui, Some(teks.lines().take(3).collect::<Vec<_>>().join(" ")))
+                (
+                    Hasil::TidakDiketahui,
+                    Some(teks.lines().take(3).collect::<Vec<_>>().join(" ")),
+                )
             }
         }
         Err(e) => {

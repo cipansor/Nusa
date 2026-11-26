@@ -19,10 +19,20 @@ pub enum Nilai {
     Log(bool),
     Teks(Rc<str>),
     Larik(Rc<RefCell<Vec<Nilai>>>),
-    Irisan { data: Rc<RefCell<Vec<Nilai>>>, mulai: usize, panjang: usize },
+    Irisan {
+        data: Rc<RefCell<Vec<Nilai>>>,
+        mulai: usize,
+        panjang: usize,
+    },
     Daftar(Rc<RefCell<Vec<Nilai>>>),
-    Struk { nama: String, medan: Vec<Nilai> },
-    Varian { nama: String, indeks: usize },
+    Struk {
+        nama: String,
+        medan: Vec<Nilai>,
+    },
+    Varian {
+        nama: String,
+        indeks: usize,
+    },
     Ref(Sel),
     Kosong,
 }
@@ -54,7 +64,14 @@ pub struct Interp<'a> {
 }
 
 pub fn jalan(prog: &Prog, sema: &Sema, jaga: bool) -> i32 {
-    let mut it = Interp { prog, sema, jaga, takaman: 0, lingkup: vec![HashMap::new()], kedalaman: 0 };
+    let mut it = Interp {
+        prog,
+        sema,
+        jaga,
+        takaman: 0,
+        lingkup: vec![HashMap::new()],
+        kedalaman: 0,
+    };
     let hasil = it.mulai();
     let _ = std::io::stdout().flush();
     match hasil {
@@ -68,14 +85,23 @@ pub fn jalan(prog: &Prog, sema: &Sema, jaga: bool) -> i32 {
 
 impl<'a> Interp<'a> {
     fn mulai(&mut self) -> Hasil<i32> {
-        let utama = match self.prog.fungsi.iter().find(|f| f.nama == "utama" && !f.luar) {
+        let utama = match self
+            .prog
+            .fungsi
+            .iter()
+            .find(|f| f.nama == "utama" && !f.luar)
+        {
             Some(f) => f,
             None => {
-                return Err(Mati { pesan: "tidak ada fungsi `utama()` untuk dijalankan".into() });
+                return Err(Mati {
+                    pesan: "tidak ada fungsi `utama()` untuk dijalankan".into(),
+                });
             }
         };
         if !utama.params.is_empty() {
-            return Err(Mati { pesan: "`utama` tidak boleh meminta argumen".into() });
+            return Err(Mati {
+                pesan: "`utama` tidak boleh meminta argumen".into(),
+            });
         }
         let v = self.panggil(utama, &[])?;
         Ok(match v {
@@ -96,7 +122,9 @@ impl<'a> Interp<'a> {
             4 => "geser tidak sah",
             _ => "pelanggaran runtime",
         };
-        Mati { pesan: format!("{} pada baris {}", pesan, baris) }
+        Mati {
+            pesan: format!("{} pada baris {}", pesan, baris),
+        }
     }
 
     fn jaga(&self, ok: bool, kode: u32, baris: u32) -> Hasil<()> {
@@ -258,7 +286,11 @@ impl<'a> Interp<'a> {
                 self.ikat(nama, v);
                 Ok(Aliran::Normal)
             }
-            Stmt::Tugas { target, nilai, span } => {
+            Stmt::Tugas {
+                target,
+                nilai,
+                span,
+            } => {
                 let v = self.eks(nilai)?;
                 match &target.kind {
                     ExprKind::Var(nama) => {
@@ -273,7 +305,12 @@ impl<'a> Interp<'a> {
                     ExprKind::Medan { dasar, nama } => {
                         let mut w = self.eks(dasar)?;
                         if let Nilai::Struk { nama: sn, medan } = &mut w {
-                            if let Some(idx) = self.sema.struk.get(sn).and_then(|s| s.indeks.get(nama).copied()) {
+                            if let Some(idx) = self
+                                .sema
+                                .struk
+                                .get(sn)
+                                .and_then(|s| s.indeks.get(nama).copied())
+                            {
                                 if let Some(slot) = medan.get_mut(idx) {
                                     *slot = v;
                                     self.tulis_tempat(dasar, w)?;
@@ -285,7 +322,9 @@ impl<'a> Interp<'a> {
                 }
                 Ok(Aliran::Normal)
             }
-            Stmt::Jika { kond, maka, lain, .. } => {
+            Stmt::Jika {
+                kond, maka, lain, ..
+            } => {
                 if self.eks_log(kond)? {
                     self.blok(maka)
                 } else if let Some(l) = lain {
@@ -307,7 +346,14 @@ impl<'a> Interp<'a> {
                 }
                 Ok(Aliran::Normal)
             }
-            Stmt::UntukRentang { nama, dari, sampai, inklusif, badan, .. } => {
+            Stmt::UntukRentang {
+                nama,
+                dari,
+                sampai,
+                inklusif,
+                badan,
+                ..
+            } => {
                 let awal = self.eks_bulat(dari)?;
                 let akhir = self.eks_bulat(sampai)?;
                 let mut i = awal;
@@ -332,11 +378,17 @@ impl<'a> Interp<'a> {
                 }
                 Ok(Aliran::Normal)
             }
-            Stmt::UntukIsi { nama, wadah, badan, .. } => {
+            Stmt::UntukIsi {
+                nama, wadah, badan, ..
+            } => {
                 let w = self.eks(wadah)?;
                 let (data, mulai, panjang) = match &w {
                     Nilai::Larik(d) => (d.clone(), 0, d.borrow().len()),
-                    Nilai::Irisan { data, mulai, panjang } => (data.clone(), *mulai, *panjang),
+                    Nilai::Irisan {
+                        data,
+                        mulai,
+                        panjang,
+                    } => (data.clone(), *mulai, *panjang),
                     Nilai::Daftar(d) => (d.clone(), 0, d.borrow().len()),
                     Nilai::Teks(t) => {
                         let bytes: Vec<Nilai> = t.bytes().map(|b| Nilai::Bulat(b as i64)).collect();
@@ -346,7 +398,11 @@ impl<'a> Interp<'a> {
                 };
                 let mut i = 0usize;
                 while i < panjang {
-                    let el = data.borrow().get(mulai + i).cloned().unwrap_or(Nilai::Kosong);
+                    let el = data
+                        .borrow()
+                        .get(mulai + i)
+                        .cloned()
+                        .unwrap_or(Nilai::Kosong);
                     let s = Rc::new(RefCell::new(el));
                     if let Some(l) = self.lingkup.last_mut() {
                         l.insert(nama.clone(), s);
@@ -373,7 +429,10 @@ impl<'a> Interp<'a> {
                         Some(p) => format!(": {}", p),
                         None => String::new(),
                     };
-                    return Err(self.mati(format!("`tegas` gagal pada baris {}{}", span.baris, tambahan)));
+                    return Err(self.mati(format!(
+                        "`tegas` gagal pada baris {}{}",
+                        span.baris, tambahan
+                    )));
                 }
                 Ok(Aliran::Normal)
             }
@@ -383,7 +442,12 @@ impl<'a> Interp<'a> {
             }
             Stmt::Henti(_) => Ok(Aliran::Henti),
             Stmt::Lanjut(_) => Ok(Aliran::Lanjut),
-            Stmt::Cocok { nilai, kasus, lainnya, .. } => {
+            Stmt::Cocok {
+                nilai,
+                kasus,
+                lainnya,
+                ..
+            } => {
                 let v = self.eks(nilai)?;
                 let (enum_nama, indeks) = match v {
                     Nilai::Varian { nama, indeks } => (nama, indeks),
@@ -424,7 +488,12 @@ impl<'a> Interp<'a> {
             ExprKind::Medan { dasar, nama } => {
                 let mut w = self.eks(dasar)?;
                 if let Nilai::Struk { nama: sn, medan } = &mut w {
-                    if let Some(idx) = self.sema.struk.get(sn).and_then(|s| s.indeks.get(nama).copied()) {
+                    if let Some(idx) = self
+                        .sema
+                        .struk
+                        .get(sn)
+                        .and_then(|s| s.indeks.get(nama).copied())
+                    {
                         if let Some(slot) = medan.get_mut(idx) {
                             *slot = v;
                         }
@@ -454,9 +523,17 @@ impl<'a> Interp<'a> {
                 let idx = self.batas(i, d.borrow().len(), baris)?;
                 Ok(d.borrow().get(idx).cloned().unwrap_or(Nilai::Kosong))
             }
-            Nilai::Irisan { data, mulai, panjang } => {
+            Nilai::Irisan {
+                data,
+                mulai,
+                panjang,
+            } => {
                 let idx = self.batas(i, *panjang, baris)?;
-                Ok(data.borrow().get(mulai + idx).cloned().unwrap_or(Nilai::Kosong))
+                Ok(data
+                    .borrow()
+                    .get(mulai + idx)
+                    .cloned()
+                    .unwrap_or(Nilai::Kosong))
             }
             Nilai::Daftar(d) => {
                 let idx = self.batas(i, d.borrow().len(), baris)?;
@@ -483,7 +560,11 @@ impl<'a> Interp<'a> {
                 }
                 Ok(())
             }
-            Nilai::Irisan { data, mulai, panjang } => {
+            Nilai::Irisan {
+                data,
+                mulai,
+                panjang,
+            } => {
                 let idx = self.batas(i, *panjang, baris)?;
                 if let Some(slot) = data.borrow_mut().get_mut(mulai + idx) {
                     *slot = v;
@@ -582,9 +663,16 @@ impl<'a> Interp<'a> {
             ExprKind::Medan { dasar, nama } => {
                 let w = self.eks(dasar)?;
                 match &w {
-                    Nilai::Struk { nama: sn, medan } => match self.sema.struk.get(sn).and_then(|s| s.indeks.get(nama).copied()) {
+                    Nilai::Struk { nama: sn, medan } => match self
+                        .sema
+                        .struk
+                        .get(sn)
+                        .and_then(|s| s.indeks.get(nama).copied())
+                    {
                         Some(i) => Ok(medan.get(i).cloned().unwrap_or(Nilai::Kosong)),
-                        None => Err(self.mati(format!("struk `{}` tidak punya medan `{}`", sn, nama))),
+                        None => {
+                            Err(self.mati(format!("struk `{}` tidak punya medan `{}`", sn, nama)))
+                        }
                     },
                     _ => Err(self.mati(format!("nilai bukan struk, tidak punya medan `{}`", nama))),
                 }
@@ -614,7 +702,10 @@ impl<'a> Interp<'a> {
                     }
                     isi.push(nilai);
                 }
-                Ok(Nilai::Struk { nama: nama.clone(), medan: isi })
+                Ok(Nilai::Struk {
+                    nama: nama.clone(),
+                    medan: isi,
+                })
             }
             ExprKind::Varian { enumerasi, varian } => {
                 let idx = self
@@ -623,7 +714,10 @@ impl<'a> Interp<'a> {
                     .get(enumerasi)
                     .and_then(|e| e.varian.iter().position(|v| v == varian))
                     .unwrap_or(0);
-                Ok(Nilai::Varian { nama: enumerasi.clone(), indeks: idx })
+                Ok(Nilai::Varian {
+                    nama: enumerasi.clone(),
+                    indeks: idx,
+                })
             }
             ExprKind::ArrayLit(isi) => {
                 let mut v = Vec::with_capacity(isi.len());
@@ -786,9 +880,29 @@ impl<'a> Interp<'a> {
             (Nilai::Pecah(x), Nilai::Pecah(y)) => x == y,
             (Nilai::Log(x), Nilai::Log(y)) => x == y,
             (Nilai::Teks(x), Nilai::Teks(y)) => x == y,
-            (Nilai::Varian { nama: n1, indeks: i1 }, Nilai::Varian { nama: n2, indeks: i2 }) => n1 == n2 && i1 == i2,
-            (Nilai::Struk { nama: n1, medan: m1 }, Nilai::Struk { nama: n2, medan: m2 }) => {
-                n1 == n2 && m1.len() == m2.len() && m1.iter().zip(m2.iter()).all(|(x, y)| self.sama(x, y))
+            (
+                Nilai::Varian {
+                    nama: n1,
+                    indeks: i1,
+                },
+                Nilai::Varian {
+                    nama: n2,
+                    indeks: i2,
+                },
+            ) => n1 == n2 && i1 == i2,
+            (
+                Nilai::Struk {
+                    nama: n1,
+                    medan: m1,
+                },
+                Nilai::Struk {
+                    nama: n2,
+                    medan: m2,
+                },
+            ) => {
+                n1 == n2
+                    && m1.len() == m2.len()
+                    && m1.iter().zip(m2.iter()).all(|(x, y)| self.sama(x, y))
             }
             (Nilai::Larik(x), Nilai::Larik(y)) => {
                 let (x, y) = (x.borrow(), y.borrow());
@@ -798,7 +912,18 @@ impl<'a> Interp<'a> {
                 let (x, y) = (x.borrow(), y.borrow());
                 x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| self.sama(p, q))
             }
-            (Nilai::Irisan { data: d1, mulai: m1, panjang: p1 }, Nilai::Irisan { data: d2, mulai: m2, panjang: p2 }) => {
+            (
+                Nilai::Irisan {
+                    data: d1,
+                    mulai: m1,
+                    panjang: p1,
+                },
+                Nilai::Irisan {
+                    data: d2,
+                    mulai: m2,
+                    panjang: p2,
+                },
+            ) => {
                 if p1 != p2 {
                     return false;
                 }
@@ -871,7 +996,11 @@ impl<'a> Interp<'a> {
                 Some(a) => a,
                 None => {
                     self.kedalaman -= 1;
-                    return Err(self.mati(format!("`{}` memerlukan {} argumen", f.nama, f.params.len())));
+                    return Err(self.mati(format!(
+                        "`{}` memerlukan {} argumen",
+                        f.nama,
+                        f.params.len()
+                    )));
                 }
             };
             let sel = if matches!(p.ty, Ty::Ref { .. }) {
@@ -897,7 +1026,11 @@ impl<'a> Interp<'a> {
         match (harap, v) {
             (Ty::Irisan(_), Nilai::Larik(d)) => {
                 let n = d.borrow().len();
-                Nilai::Irisan { data: d, mulai: 0, panjang: n }
+                Nilai::Irisan {
+                    data: d,
+                    mulai: 0,
+                    panjang: n,
+                }
             }
             (_, v) => v,
         }
@@ -996,7 +1129,13 @@ impl<'a> Interp<'a> {
         let v = self.baca(v);
         match (&v, ty) {
             (Nilai::Teks(t), _) => t.to_string(),
-            (Nilai::Log(b), _) => if *b { "benar".into() } else { "salah".into() },
+            (Nilai::Log(b), _) => {
+                if *b {
+                    "benar".into()
+                } else {
+                    "salah".into()
+                }
+            }
             (Nilai::Pecah(f), _) => fmt_pecah(*f),
             (Nilai::Bulat(n), Ty::Nat) | (Nilai::Bulat(n), Ty::Nat8) => format!("{}", *n as u64),
             (Nilai::Bulat(n), Ty::Huruf) => {
@@ -1031,7 +1170,12 @@ fn fmt_pecah(v: f64) -> String {
         let mantissa = v / 10f64.powi(pangkat);
         let m = format!("{:.5}", mantissa);
         let m = m.trim_end_matches('0').trim_end_matches('.').to_string();
-        format!("{}e{}{:02}", m, if pangkat < 0 { "-" } else { "+" }, pangkat.abs())
+        format!(
+            "{}e{}{:02}",
+            m,
+            if pangkat < 0 { "-" } else { "+" },
+            pangkat.abs()
+        )
     } else {
         let desimal = (5 - pangkat).max(0) as usize;
         let s = format!("{:.*}", desimal, v);

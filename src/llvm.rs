@@ -7,7 +7,7 @@ use crate::sema::{Panggilan, Sema};
 use std::collections::{BTreeMap, HashMap};
 
 pub struct Opsi {
-    pub jaga: bool,      // sisipkan pemeriksaan runtime (batas, luber, bagi nol)
+    pub jaga: bool, // sisipkan pemeriksaan runtime (batas, luber, bagi nol)
     pub opt: &'static str,
 }
 
@@ -83,7 +83,9 @@ impl<'a> Codegen<'a> {
     fn alloca(&mut self, ty: &str) -> String {
         let n = self.tmp();
         let nm = format!("%a{}", &n[2..]);
-        self.ctx.alloca.push_str(&format!("  {} = alloca {}\n", nm, ty));
+        self.ctx
+            .alloca
+            .push_str(&format!("  {} = alloca {}\n", nm, ty));
         nm
     }
 
@@ -167,7 +169,11 @@ impl<'a> Codegen<'a> {
     }
 
     fn ikat(&mut self, nama: &str, l: Lokal) {
-        self.ctx.scope.last_mut().unwrap().insert(nama.to_string(), l);
+        self.ctx
+            .scope
+            .last_mut()
+            .unwrap()
+            .insert(nama.to_string(), l);
     }
 
     pub fn baru(prog: &'a Prog, sema: &'a Sema, opsi: Opsi) -> Self {
@@ -217,7 +223,9 @@ impl<'a> Codegen<'a> {
             Ty::Kosong => "ks".into(),
             Ty::Array(d, n) => format!("a{}_{}", n, self.mangle(d)),
             Ty::Irisan(d) => format!("i_{}", self.mangle(d)),
-            Ty::Ref { ubah, dalam } => format!("r{}_{}", if *ubah { "u" } else { "s" }, self.mangle(dalam)),
+            Ty::Ref { ubah, dalam } => {
+                format!("r{}_{}", if *ubah { "u" } else { "s" }, self.mangle(dalam))
+            }
             Ty::Daftar(d) => format!("d_{}", self.mangle(d)),
             Ty::Nama(n) => format!("n_{}", n),
         }
@@ -272,7 +280,11 @@ impl<'a> Codegen<'a> {
                 if self.sema.enumerasi.contains_key(n) {
                     4
                 } else {
-                    self.sema.struk.get(n).map(|s| s.medan.iter().map(|(_, m)| self.ukuran(m)).sum()).unwrap_or(0)
+                    self.sema
+                        .struk
+                        .get(n)
+                        .map(|s| s.medan.iter().map(|(_, m)| self.ukuran(m)).sum())
+                        .unwrap_or(0)
                 }
             }
         }
@@ -299,7 +311,13 @@ impl<'a> Codegen<'a> {
 
     fn stmt(&mut self, st: &Stmt) {
         match st {
-            Stmt::Ikat { nama, ty, nilai, span, .. } => {
+            Stmt::Ikat {
+                nama,
+                ty,
+                nilai,
+                span,
+                ..
+            } => {
                 let mut v = self.ekspresi(nilai);
                 if let Some(t) = ty {
                     v = self.ubah_tipe(v, t);
@@ -309,7 +327,14 @@ impl<'a> Codegen<'a> {
                 self.simpan(&p, &v.ty, &v.reg);
                 let _ = span;
                 let daftar = self.perlu_bebas(&v.ty);
-                self.ikat(nama, Lokal { ptr: p, ty: v.ty.clone(), daftar });
+                self.ikat(
+                    nama,
+                    Lokal {
+                        ptr: p,
+                        ty: v.ty.clone(),
+                        daftar,
+                    },
+                );
             }
             Stmt::Tugas { target, nilai, .. } => {
                 let t_target = self.sema.tipe.get(&target.id).cloned().unwrap_or(Ty::Bil);
@@ -318,7 +343,9 @@ impl<'a> Codegen<'a> {
                 let p = self.tempat_ptr(target);
                 self.simpan(&p, &t_target, &v.reg);
             }
-            Stmt::Jika { kond, maka, lain, .. } => {
+            Stmt::Jika {
+                kond, maka, lain, ..
+            } => {
                 let k = self.ekspresi(kond);
                 let lt = self.lbl("jika.maka");
                 let le = self.lbl("jika.lain");
@@ -367,7 +394,14 @@ impl<'a> Codegen<'a> {
                 self.ctx.badan.push_str(&format!("{}:\n", le));
                 self.ctx.buntu = false;
             }
-            Stmt::UntukRentang { nama, dari, sampai, inklusif, badan, .. } => {
+            Stmt::UntukRentang {
+                nama,
+                dari,
+                sampai,
+                inklusif,
+                badan,
+                ..
+            } => {
                 let a = self.ekspresi(dari);
                 let b = self.ekspresi(sampai);
                 let p = self.alloca("i64");
@@ -387,7 +421,14 @@ impl<'a> Codegen<'a> {
                 self.ctx.badan.push_str(&format!("{}:\n", lb));
                 self.ctx.buntu = false;
                 self.masuk();
-                self.ikat(nama, Lokal { ptr: p.clone(), ty: Ty::Bil, daftar: false });
+                self.ikat(
+                    nama,
+                    Lokal {
+                        ptr: p.clone(),
+                        ty: Ty::Bil,
+                        daftar: false,
+                    },
+                );
                 self.ctx.loop_stack.push((ls.clone(), le.clone()));
                 for s in &badan.stmts {
                     self.stmt(s);
@@ -407,8 +448,18 @@ impl<'a> Codegen<'a> {
                 self.ctx.badan.push_str(&format!("{}:\n", le));
                 self.ctx.buntu = false;
             }
-            Stmt::UntukIsi { nama, wadah, badan, span } => {
-                let elemen = self.sema.elemen_untuk.get(&(span.baris, span.kol)).cloned().unwrap_or(Ty::Bil);
+            Stmt::UntukIsi {
+                nama,
+                wadah,
+                badan,
+                span,
+            } => {
+                let elemen = self
+                    .sema
+                    .elemen_untuk
+                    .get(&(span.baris, span.kol))
+                    .cloned()
+                    .unwrap_or(Ty::Bil);
                 let (ptr, len) = self.ptr_dan_panjang(wadah);
                 let p = self.alloca("i64");
                 self.simpan(&p, &Ty::Bil, "0");
@@ -428,12 +479,22 @@ impl<'a> Codegen<'a> {
                 let et = self.llty(&elemen);
                 let ep = self.tmp();
                 let i4 = self.muat(&p, &Ty::Bil);
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 {}", ep, et, et, ptr, i4));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 {}",
+                    ep, et, et, ptr, i4
+                ));
                 let el = self.muat(&ep, &elemen);
                 let lp = self.alloca(&et);
                 self.simpan(&lp, &elemen, &el);
                 self.masuk();
-                self.ikat(nama, Lokal { ptr: lp, ty: elemen, daftar: false });
+                self.ikat(
+                    nama,
+                    Lokal {
+                        ptr: lp,
+                        ty: elemen,
+                        daftar: false,
+                    },
+                );
                 self.ctx.loop_stack.push((ls.clone(), le.clone()));
                 for s in &badan.stmts {
                     self.stmt(s);
@@ -474,7 +535,10 @@ impl<'a> Codegen<'a> {
                 let pesan_teks = pesan.clone().unwrap_or_else(|| "tegas gagal".to_string());
                 let p = self.teks_konst(&pesan_teks);
                 let l = pesan_teks.len();
-                self.emit(&format!("call void @nusa_tegas(i8* {}, i64 {}, i32 {})", p, l, span.baris));
+                self.emit(&format!(
+                    "call void @nusa_tegas(i8* {}, i64 {}, i32 {})",
+                    p, l, span.baris
+                ));
                 self.emit("unreachable");
                 self.ctx.badan.push_str(&format!("{}:\n", lo));
                 self.ctx.buntu = false;
@@ -494,7 +558,12 @@ impl<'a> Codegen<'a> {
                     self.ctx.buntu = true;
                 }
             }
-            Stmt::Cocok { nilai, kasus, lainnya, .. } => {
+            Stmt::Cocok {
+                nilai,
+                kasus,
+                lainnya,
+                ..
+            } => {
                 let v = self.ekspresi(nilai);
                 let enum_nama = match self.sema.tipe.get(&nilai.id).cloned() {
                     Some(Ty::Nama(n)) => n,
@@ -519,9 +588,16 @@ impl<'a> Codegen<'a> {
                         .unwrap_or(0);
                     let c = self.tmp();
                     self.emit(&format!("{} = icmp eq i32 {}, {}", c, v.reg, idx));
-                    self.emit(&format!("br i1 {}, label %{}, label %{}", c, label_kasus[i], dispatch[i + 1]));
+                    self.emit(&format!(
+                        "br i1 {}, label %{}, label %{}",
+                        c,
+                        label_kasus[i],
+                        dispatch[i + 1]
+                    ));
                 }
-                self.ctx.badan.push_str(&format!("{}:\n", dispatch[kasus.len()]));
+                self.ctx
+                    .badan
+                    .push_str(&format!("{}:\n", dispatch[kasus.len()]));
                 if lainnya.is_some() {
                     self.emit(&format!("br label %{}", bawaan));
                 } else {
@@ -568,7 +644,10 @@ impl<'a> Codegen<'a> {
         self.emit(&format!("br i1 {}, label %{}, label %{}", kondisi, lo, lg));
         self.ctx.badan.push_str(&format!("{}:\n", lg));
         self.ctx.buntu = false;
-        self.emit(&format!("call void @nusa_gagal(i32 {}, i32 {})", kode, baris));
+        self.emit(&format!(
+            "call void @nusa_gagal(i32 {}, i32 {})",
+            kode, baris
+        ));
         self.emit("unreachable");
         self.ctx.badan.push_str(&format!("{}:\n", lo));
         self.ctx.buntu = false;
@@ -612,7 +691,10 @@ impl<'a> Codegen<'a> {
                 let p = self.alloca(&at);
                 self.simpan(&p, &t, &v.reg);
                 let ep = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0", ep, at, at, p, ));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0",
+                    ep, at, at, p,
+                ));
                 let _ = et;
                 (ep, n.to_string())
             }
@@ -690,7 +772,10 @@ impl<'a> Codegen<'a> {
                     .unwrap_or(Ty::Bil);
                 let mt = self.llty(&ty_medan);
                 let p = self.tmp();
-                self.emit(&format!("{} = getelementptr {}, {}* {}, i32 0, i32 {}", p, st, st, bp, idx));
+                self.emit(&format!(
+                    "{} = getelementptr {}, {}* {}, i32 0, i32 {}",
+                    p, st, st, bp, idx
+                ));
                 let _ = mt;
                 p
             }
@@ -701,7 +786,10 @@ impl<'a> Codegen<'a> {
                 self.jaga_batas(&idx64, &len, e.span.baris);
                 let et = self.llty(&elemen);
                 let p = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 {}", p, et, et, base_ptr, idx64));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 {}",
+                    p, et, et, base_ptr, idx64
+                ));
                 p
             }
             _ => {
@@ -729,7 +817,10 @@ impl<'a> Codegen<'a> {
                 let p = self.alloca(&at);
                 self.simpan(&p, &t, &v.reg);
                 let ep = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0", ep, at, at, p));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0",
+                    ep, at, at, p
+                ));
                 (ep, n.to_string(), (**d).clone())
             }
             Ty::Irisan(d) | Ty::Daftar(d) => {
@@ -790,13 +881,22 @@ impl<'a> Codegen<'a> {
                 let p = self.alloca(&at);
                 self.simpan(&p, &v.ty, &v.reg);
                 let ep = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0", ep, at, at, p));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 0, i64 0",
+                    ep, at, at, p
+                ));
                 let it = self.llty(t);
                 let r1 = self.tmp();
                 let r2 = self.tmp();
-                self.emit(&format!("{} = insertvalue {} undef, {}* {}, 0", r1, it, et, ep));
+                self.emit(&format!(
+                    "{} = insertvalue {} undef, {}* {}, 0",
+                    r1, it, et, ep
+                ));
                 self.emit(&format!("{} = insertvalue {} {}, i64 {}, 1", r2, it, r1, n));
-                return Val { reg: r2, ty: t.clone() };
+                return Val {
+                    reg: r2,
+                    ty: t.clone(),
+                };
             }
         }
         v
@@ -805,8 +905,14 @@ impl<'a> Codegen<'a> {
     fn ekspresi(&mut self, e: &Expr) -> Val {
         let t = self.sema.tipe.get(&e.id).cloned().unwrap_or(Ty::Bil);
         match &e.kind {
-            ExprKind::Bil(v) => Val { reg: v.to_string(), ty: t },
-            ExprKind::Huruf(v) => Val { reg: v.to_string(), ty: Ty::Huruf },
+            ExprKind::Bil(v) => Val {
+                reg: v.to_string(),
+                ty: t,
+            },
+            ExprKind::Huruf(v) => Val {
+                reg: v.to_string(),
+                ty: Ty::Huruf,
+            },
             ExprKind::Pecah(v) => {
                 let mut s = format!("{:e}", v);
                 if !s.contains('.') {
@@ -816,18 +922,33 @@ impl<'a> Codegen<'a> {
                         s.push_str(".0e0");
                     }
                 }
-                Val { reg: s, ty: Ty::Pecah }
+                Val {
+                    reg: s,
+                    ty: Ty::Pecah,
+                }
             }
             ExprKind::Teks(s) => {
                 let nama = self.teks_konst(s);
                 let len = s.len();
                 let r1 = self.tmp();
                 let r2 = self.tmp();
-                self.emit(&format!("{} = insertvalue %teks undef, i8* {}, 0", r1, nama));
-                self.emit(&format!("{} = insertvalue %teks {}, i64 {}, 1", r2, r1, len));
-                Val { reg: r2, ty: Ty::Teks }
+                self.emit(&format!(
+                    "{} = insertvalue %teks undef, i8* {}, 0",
+                    r1, nama
+                ));
+                self.emit(&format!(
+                    "{} = insertvalue %teks {}, i64 {}, 1",
+                    r2, r1, len
+                ));
+                Val {
+                    reg: r2,
+                    ty: Ty::Teks,
+                }
             }
-            ExprKind::Log(b) => Val { reg: b.to_string(), ty: Ty::Log },
+            ExprKind::Log(b) => Val {
+                reg: b.to_string(),
+                ty: Ty::Log,
+            },
             ExprKind::Var(n) => match self.cari(n) {
                 Some(l) => {
                     let v = self.muat(&l.ptr, &l.ty);
@@ -836,11 +957,19 @@ impl<'a> Codegen<'a> {
                     }
                     Val { reg: v, ty: l.ty }
                 }
-                None => Val { reg: "0".into(), ty: t },
+                None => Val {
+                    reg: "0".into(),
+                    ty: t,
+                },
             },
             ExprKind::Biner(op, a, b) => match op {
                 BinOp::Dan | BinOp::Atau => self.dan_atau(*op, a, b),
-                BinOp::Sama | BinOp::TidakSama | BinOp::Kecil | BinOp::KecilSama | BinOp::Besar | BinOp::BesarSama => self.bandingkan(*op, a, b, e.span.baris),
+                BinOp::Sama
+                | BinOp::TidakSama
+                | BinOp::Kecil
+                | BinOp::KecilSama
+                | BinOp::Besar
+                | BinOp::BesarSama => self.bandingkan(*op, a, b, e.span.baris),
                 _ => {
                     let x = self.ekspresi(a);
                     let y = self.ekspresi(b);
@@ -853,9 +982,20 @@ impl<'a> Codegen<'a> {
                     UnOp::Bukan => {
                         let r = self.tmp();
                         self.emit(&format!("{} = xor i1 {}, true", r, v.reg));
-                        Val { reg: r, ty: Ty::Log }
+                        Val {
+                            reg: r,
+                            ty: Ty::Log,
+                        }
                     }
-                    UnOp::Neg => self.arits(BinOp::Kurang, &Val { reg: "0".into(), ty: v.ty.clone() }, &v, e.span.baris),
+                    UnOp::Neg => self.arits(
+                        BinOp::Kurang,
+                        &Val {
+                            reg: "0".into(),
+                            ty: v.ty.clone(),
+                        },
+                        &v,
+                        e.span.baris,
+                    ),
                 }
             }
             ExprKind::Alamat { dasar, .. } => {
@@ -869,7 +1009,10 @@ impl<'a> Codegen<'a> {
                 self.jaga_batas(&idx, &len, e.span.baris);
                 let et = self.llty(&elemen);
                 let p = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 {}", p, et, et, base_ptr, idx));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 {}",
+                    p, et, et, base_ptr, idx
+                ));
                 let v = self.muat(&p, &elemen);
                 Val { reg: v, ty: elemen }
             }
@@ -880,7 +1023,10 @@ impl<'a> Codegen<'a> {
                         let (nama_struk, ty_medan) = match &*dalam {
                             Ty::Nama(n) => {
                                 let info = self.sema.struk.get(n).cloned();
-                                let idx = info.as_ref().and_then(|s| s.indeks.get(nama).copied()).unwrap_or(0);
+                                let idx = info
+                                    .as_ref()
+                                    .and_then(|s| s.indeks.get(nama).copied())
+                                    .unwrap_or(0);
                                 let tm = info.map(|s| s.medan[idx].1.clone()).unwrap_or(Ty::Bil);
                                 (n.clone(), tm)
                             }
@@ -889,7 +1035,10 @@ impl<'a> Codegen<'a> {
                         let _ = nama_struk;
                         let p = self.tempat_ptr(e);
                         let v = self.muat(&p, &ty_medan);
-                        Val { reg: v, ty: ty_medan }
+                        Val {
+                            reg: v,
+                            ty: ty_medan,
+                        }
                     }
                     Ty::Nama(_) => {
                         let p = self.tempat_ptr(e);
@@ -899,7 +1048,10 @@ impl<'a> Codegen<'a> {
                         }
                         Val { reg: v, ty: t }
                     }
-                    _ => Val { reg: "0".into(), ty: t },
+                    _ => Val {
+                        reg: "0".into(),
+                        ty: t,
+                    },
                 }
             }
             ExprKind::Sebagai { nilai, ty } => {
@@ -918,12 +1070,18 @@ impl<'a> Codegen<'a> {
                             vv = self.ubah_tipe(vv, mty);
                             let mt = self.llty(mty);
                             let r = self.tmp();
-                            self.emit(&format!("{} = insertvalue {} {}, {} {}, {}", r, st, reg, mt, vv.reg, i));
+                            self.emit(&format!(
+                                "{} = insertvalue {} {}, {} {}, {}",
+                                r, st, reg, mt, vv.reg, i
+                            ));
                             reg = r;
                         }
                     }
                 }
-                Val { reg, ty: Ty::Nama(nama.clone()) }
+                Val {
+                    reg,
+                    ty: Ty::Nama(nama.clone()),
+                }
             }
             ExprKind::Varian { enumerasi, varian } => {
                 let idx = self
@@ -932,7 +1090,10 @@ impl<'a> Codegen<'a> {
                     .get(enumerasi)
                     .and_then(|e| e.varian.iter().position(|v| v == varian))
                     .unwrap_or(0);
-                Val { reg: idx.to_string(), ty: Ty::Nama(enumerasi.clone()) }
+                Val {
+                    reg: idx.to_string(),
+                    ty: Ty::Nama(enumerasi.clone()),
+                }
             }
             ExprKind::ArrayLit(isi) => {
                 let at = self.llty(&t);
@@ -944,7 +1105,10 @@ impl<'a> Codegen<'a> {
                 for (i, x) in isi.iter().enumerate() {
                     let v = self.ekspresi(x);
                     let ep = self.tmp();
-                    self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 0, i64 {}", ep, at, at, p, i));
+                    self.emit(&format!(
+                        "{} = getelementptr inbounds {}, {}* {}, i64 0, i64 {}",
+                        ep, at, at, p, i
+                    ));
                     self.emit(&format!("store {} {}, {}* {}", et, v.reg, et, ep));
                 }
                 let r = self.tmp();
@@ -975,7 +1139,10 @@ impl<'a> Codegen<'a> {
         self.ctx.badan.push_str(&format!("{}:\n", lt));
         self.ctx.buntu = false;
         let v = self.muat(&p, &Ty::Log);
-        Val { reg: v, ty: Ty::Log }
+        Val {
+            reg: v,
+            ty: Ty::Log,
+        }
     }
 
     fn lebar(&self, t: &Ty) -> u32 {
@@ -1020,7 +1187,10 @@ impl<'a> Codegen<'a> {
                 if self.jaga_aktif() {
                     let intr = format!("@llvm.{}{}.with.overflow.i{}", tanda, nm, w);
                     let pr = self.tmp();
-                    self.emit(&format!("{} = call {{ {}, i1 }} {}({} {}, {} {})", pr, t, intr, t, a.reg, t, b.reg));
+                    self.emit(&format!(
+                        "{} = call {{ {}, i1 }} {}({} {}, {} {})",
+                        pr, t, intr, t, a.reg, t, b.reg
+                    ));
                     let v = self.tmp();
                     let ov = self.tmp();
                     self.emit(&format!("{} = extractvalue {{ {}, i1 }} {}, 0", v, t, pr));
@@ -1031,7 +1201,10 @@ impl<'a> Codegen<'a> {
                     Val { reg: v, ty }
                 } else {
                     let r = self.tmp();
-                    self.emit(&format!("{} = {} n{}w {} {}, {}", r, nm, tanda, t, a.reg, b.reg));
+                    self.emit(&format!(
+                        "{} = {} n{}w {} {}, {}",
+                        r, nm, tanda, t, a.reg, b.reg
+                    ));
                     Val { reg: r, ty }
                 }
             }
@@ -1040,7 +1213,16 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("{} = icmp ne {} {}, 0", nol, t, b.reg));
                 self.jaga(&nol, 3, baris);
                 if self.bertanda(&ty) {
-                    let mn = format!("{}", if w == 64 { i64::MIN } else if w == 32 { i32::MIN as i64 } else { i8::MIN as i64 });
+                    let mn = format!(
+                        "{}",
+                        if w == 64 {
+                            i64::MIN
+                        } else if w == 32 {
+                            i32::MIN as i64
+                        } else {
+                            i8::MIN as i64
+                        }
+                    );
                     let c1 = self.tmp();
                     let c2 = self.tmp();
                     let c3 = self.tmp();
@@ -1052,7 +1234,11 @@ impl<'a> Codegen<'a> {
                     self.jaga(&aman, 1, baris);
                 }
                 let ins = if op == BinOp::Bagi {
-                    if self.bertanda(&ty) { "sdiv" } else { "udiv" }
+                    if self.bertanda(&ty) {
+                        "sdiv"
+                    } else {
+                        "udiv"
+                    }
                 } else if self.bertanda(&ty) {
                     "srem"
                 } else {
@@ -1075,7 +1261,10 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("{} = {} {} {}, {}", r, ins, t, a.reg, b.reg));
                 Val { reg: r, ty }
             }
-            _ => Val { reg: "0".into(), ty },
+            _ => Val {
+                reg: "0".into(),
+                ty,
+            },
         }
     }
 
@@ -1098,7 +1287,10 @@ impl<'a> Codegen<'a> {
             };
             let r = self.tmp();
             self.emit(&format!("{} = fcmp {} double {}, {}", r, ins, x.reg, y.reg));
-            return Val { reg: r, ty: Ty::Log };
+            return Val {
+                reg: r,
+                ty: Ty::Log,
+            };
         }
         let nama_enum = matches!(&ty, Ty::Nama(n) if self.sema.enumerasi.contains_key(n));
         if matches!(ty, Ty::Nama(_)) && !nama_enum {
@@ -1113,26 +1305,67 @@ impl<'a> Codegen<'a> {
             let bb = self.tmp();
             self.emit(&format!("{} = bitcast {}* {} to i8*", ba, t, pa));
             self.emit(&format!("{} = bitcast {}* {} to i8*", bb, t, pb));
-            self.emit(&format!("{} = call i32 @nusa_banding_memori(i8* {}, i8* {}, i64 {})", r, ba, bb, uk));
+            self.emit(&format!(
+                "{} = call i32 @nusa_banding_memori(i8* {}, i8* {}, i64 {})",
+                r, ba, bb, uk
+            ));
             let c = self.tmp();
             let ins = if op == BinOp::Sama { "eq" } else { "ne" };
             self.emit(&format!("{} = icmp {} i32 {}, 0", c, ins, r));
-            return Val { reg: c, ty: Ty::Log };
+            return Val {
+                reg: c,
+                ty: Ty::Log,
+            };
         }
-        let tanda = if self.bertanda(&ty) || matches!(ty, Ty::Nama(_)) { "s" } else { "u" };
-        let t = if ty == Ty::Log { "i1".to_string() } else { self.llty(&ty) };
+        let tanda = if self.bertanda(&ty) || matches!(ty, Ty::Nama(_)) {
+            "s"
+        } else {
+            "u"
+        };
+        let t = if ty == Ty::Log {
+            "i1".to_string()
+        } else {
+            self.llty(&ty)
+        };
         let ins = match op {
             BinOp::Sama => "eq",
             BinOp::TidakSama => "ne",
-            BinOp::Kecil => if tanda == "s" { "slt" } else { "ult" },
-            BinOp::KecilSama => if tanda == "s" { "sle" } else { "ule" },
-            BinOp::Besar => if tanda == "s" { "sgt" } else { "ugt" },
-            BinOp::BesarSama => if tanda == "s" { "sge" } else { "uge" },
+            BinOp::Kecil => {
+                if tanda == "s" {
+                    "slt"
+                } else {
+                    "ult"
+                }
+            }
+            BinOp::KecilSama => {
+                if tanda == "s" {
+                    "sle"
+                } else {
+                    "ule"
+                }
+            }
+            BinOp::Besar => {
+                if tanda == "s" {
+                    "sgt"
+                } else {
+                    "ugt"
+                }
+            }
+            BinOp::BesarSama => {
+                if tanda == "s" {
+                    "sge"
+                } else {
+                    "uge"
+                }
+            }
             _ => "eq",
         };
         let r = self.tmp();
         self.emit(&format!("{} = icmp {} {} {}, {}", r, ins, t, x.reg, y.reg));
-        Val { reg: r, ty: Ty::Log }
+        Val {
+            reg: r,
+            ty: Ty::Log,
+        }
     }
 
     fn banding_teks(&mut self, op: BinOp, x: &Val, y: &Val) -> Val {
@@ -1146,16 +1379,28 @@ impl<'a> Codegen<'a> {
         self.emit(&format!("{} = extractvalue %teks {}, 1", ly, y.reg));
         if op == BinOp::Sama || op == BinOp::TidakSama {
             let r = self.tmp();
-            self.emit(&format!("{} = call i1 @nusa_teks_sama(i8* {}, i64 {}, i8* {}, i64 {})", r, px, lx, py, ly));
+            self.emit(&format!(
+                "{} = call i1 @nusa_teks_sama(i8* {}, i64 {}, i8* {}, i64 {})",
+                r, px, lx, py, ly
+            ));
             if op == BinOp::TidakSama {
                 let n = self.tmp();
                 self.emit(&format!("{} = xor i1 {}, true", n, r));
-                return Val { reg: n, ty: Ty::Log };
+                return Val {
+                    reg: n,
+                    ty: Ty::Log,
+                };
             }
-            return Val { reg: r, ty: Ty::Log };
+            return Val {
+                reg: r,
+                ty: Ty::Log,
+            };
         }
         let r = self.tmp();
-        self.emit(&format!("{} = call i32 @nusa_teks_banding(i8* {}, i64 {}, i8* {}, i64 {})", r, px, lx, py, ly));
+        self.emit(&format!(
+            "{} = call i32 @nusa_teks_banding(i8* {}, i64 {}, i8* {}, i64 {})",
+            r, px, lx, py, ly
+        ));
         let c = self.tmp();
         let ins = match op {
             BinOp::Kecil => "slt",
@@ -1165,7 +1410,10 @@ impl<'a> Codegen<'a> {
             _ => "eq",
         };
         self.emit(&format!("{} = icmp {} i32 {}, 0", c, ins, r));
-        Val { reg: c, ty: Ty::Log }
+        Val {
+            reg: c,
+            ty: Ty::Log,
+        }
     }
 
     fn konversi(&mut self, v: Val, ty: &Ty, baris: u32) -> Val {
@@ -1177,7 +1425,11 @@ impl<'a> Codegen<'a> {
             let r = self.tmp();
             if asal == Ty::Pecah {
                 let t = self.llty(ty);
-                let tanda = if self.bertanda(ty) { "fptosi" } else { "fptoui" };
+                let tanda = if self.bertanda(ty) {
+                    "fptosi"
+                } else {
+                    "fptoui"
+                };
                 if self.jaga_aktif() {
                     let (lo, atas) = match ty {
                         Ty::Bil => (i64::MIN as f64, 9223372036854775808.0),
@@ -1195,7 +1447,10 @@ impl<'a> Codegen<'a> {
                     let b = self.tmp();
                     self.emit(&format!("{} = fcmp ord double {}, {}", ord, v.reg, v.reg));
                     self.emit(&format!("{} = fcmp oge double {}, {:.1}", bawah, v.reg, lo));
-                    self.emit(&format!("{} = fcmp olt double {}, {:.1}", atasr, v.reg, atas));
+                    self.emit(&format!(
+                        "{} = fcmp olt double {}, {:.1}",
+                        atasr, v.reg, atas
+                    ));
                     self.emit(&format!("{} = and i1 {}, {}", a, ord, bawah));
                     self.emit(&format!("{} = and i1 {}, {}", b, a, atasr));
                     self.jaga(&b, 1, baris);
@@ -1203,10 +1458,17 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("{} = {} double {} to {}", r, tanda, v.reg, t));
             } else {
                 let t = self.llty(&asal);
-                let tanda = if self.bertanda(&asal) { "sitofp" } else { "uitofp" };
+                let tanda = if self.bertanda(&asal) {
+                    "sitofp"
+                } else {
+                    "uitofp"
+                };
                 self.emit(&format!("{} = {} {} {} to double", r, tanda, t, v.reg));
             }
-            return Val { reg: r, ty: ty.clone() };
+            return Val {
+                reg: r,
+                ty: ty.clone(),
+            };
         }
         let wa = self.lebar(&asal);
         let wt = self.lebar(ty);
@@ -1243,7 +1505,10 @@ impl<'a> Codegen<'a> {
         } else {
             self.emit(&format!("{} = bitcast {} {} to {}", r, ta, v.reg, tt));
         }
-        Val { reg: r, ty: ty.clone() }
+        Val {
+            reg: r,
+            ty: ty.clone(),
+        }
     }
 
     fn panggilan(&mut self, e: &Expr, _nama: &str, args: &[Expr]) -> Val {
@@ -1268,14 +1533,26 @@ impl<'a> Codegen<'a> {
                 if hasil == Ty::Kosong {
                     self.emit(&format!("call void @nusa_{}({})", n, argv.join(", ")));
                     let _ = r;
-                    Val { reg: "0".into(), ty: Ty::Kosong }
+                    Val {
+                        reg: "0".into(),
+                        ty: Ty::Kosong,
+                    }
                 } else {
-                    self.emit(&format!("{} = call {} @nusa_{}({})", r, ret, n, argv.join(", ")));
+                    self.emit(&format!(
+                        "{} = call {} @nusa_{}({})",
+                        r,
+                        ret,
+                        n,
+                        argv.join(", ")
+                    ));
                     Val { reg: r, ty: hasil }
                 }
             }
             Some(Panggilan::Bawaan(n)) => self.bawaan(e, &n, args),
-            None => Val { reg: "0".into(), ty: Ty::Kosong },
+            None => Val {
+                reg: "0".into(),
+                ty: Ty::Kosong,
+            },
         }
     }
 
@@ -1299,7 +1576,10 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("call void @nusa_{}_nat(i64 {})", etiket, r));
             }
             Ty::Huruf => self.emit(&format!("call void @nusa_{}_huruf(i8 {})", etiket, v.reg)),
-            Ty::Pecah => self.emit(&format!("call void @nusa_{}_pecah(double {})", etiket, v.reg)),
+            Ty::Pecah => self.emit(&format!(
+                "call void @nusa_{}_pecah(double {})",
+                etiket, v.reg
+            )),
             Ty::Log => {
                 let r = self.tmp();
                 self.emit(&format!("{} = zext i1 {} to i32", r, v.reg));
@@ -1310,7 +1590,10 @@ impl<'a> Codegen<'a> {
                 let l = self.tmp();
                 self.emit(&format!("{} = extractvalue %teks {}, 0", p, v.reg));
                 self.emit(&format!("{} = extractvalue %teks {}, 1", l, v.reg));
-                self.emit(&format!("call void @nusa_{}_teks(i8* {}, i64 {})", etiket, p, l));
+                self.emit(&format!(
+                    "call void @nusa_{}_teks(i8* {}, i64 {})",
+                    etiket, p, l
+                ));
             }
             Ty::Nama(n) => {
                 let tabel = match self.varian.get(n) {
@@ -1322,10 +1605,21 @@ impl<'a> Codegen<'a> {
                     self.emit(&format!("{} = sext i32 {} to i64", r, v.reg));
                     self.emit(&format!("call void @nusa_{}_bil(i64 {})", etiket, r));
                 } else {
-                    let jml = self.sema.enumerasi.get(n).map(|e| e.varian.len()).unwrap_or(0);
+                    let jml = self
+                        .sema
+                        .enumerasi
+                        .get(n)
+                        .map(|e| e.varian.len())
+                        .unwrap_or(0);
                     let p = self.tmp();
-                    self.emit(&format!("{} = getelementptr inbounds [{} x %teks], [{} x %teks]* {}, i64 0, i64 0", p, jml, jml, tabel, ));
-                    self.emit(&format!("call void @nusa_{}_varian(i32 {}, %teks* {}, i32 {})", etiket, v.reg, p, jml));
+                    self.emit(&format!(
+                        "{} = getelementptr inbounds [{} x %teks], [{} x %teks]* {}, i64 0, i64 0",
+                        p, jml, jml, tabel,
+                    ));
+                    self.emit(&format!(
+                        "call void @nusa_{}_varian(i32 {}, %teks* {}, i32 {})",
+                        etiket, v.reg, p, jml
+                    ));
                 }
             }
             _ => {}
@@ -1342,10 +1636,18 @@ impl<'a> Codegen<'a> {
                 if nama == "cetak" {
                     self.emit("call void @nusa_baris()");
                 }
-                Val { reg: "0".into(), ty: Ty::Kosong }
+                Val {
+                    reg: "0".into(),
+                    ty: Ty::Kosong,
+                }
             }
             "daftar" => {
-                let t = self.sema.tipe.get(&e.id).cloned().unwrap_or(Ty::Daftar(Box::new(Ty::Bil)));
+                let t = self
+                    .sema
+                    .tipe
+                    .get(&e.id)
+                    .cloned()
+                    .unwrap_or(Ty::Daftar(Box::new(Ty::Bil)));
                 let dt = self.llty(&t);
                 let r1 = self.tmp();
                 let r2 = self.tmp();
@@ -1366,7 +1668,10 @@ impl<'a> Codegen<'a> {
                     _ => Ty::Bil,
                 };
                 let d = if self.sema.metode.contains(&e.id) {
-                    Val { reg: self.tempat_ptr(&args[0]), ty: t0.clone() }
+                    Val {
+                        reg: self.tempat_ptr(&args[0]),
+                        ty: t0.clone(),
+                    }
                 } else {
                     self.ekspresi(&args[0])
                 };
@@ -1374,10 +1679,23 @@ impl<'a> Codegen<'a> {
                 let dp = self.tmp();
                 let lp = self.tmp();
                 let cp = self.tmp();
-                self.emit(&format!("{} = getelementptr {}, {}* {}, i32 0, i32 0", dp, dt, dt, d.reg));
-                self.emit(&format!("{} = getelementptr {}, {}* {}, i32 0, i32 1", lp, dt, dt, d.reg));
-                self.emit(&format!("{} = getelementptr {}, {}* {}, i32 0, i32 2", cp, dt, dt, d.reg));
-                let idx = if nama == "sisip" { Some(self.ekspresi(&args[1])) } else { None };
+                self.emit(&format!(
+                    "{} = getelementptr {}, {}* {}, i32 0, i32 0",
+                    dp, dt, dt, d.reg
+                ));
+                self.emit(&format!(
+                    "{} = getelementptr {}, {}* {}, i32 0, i32 1",
+                    lp, dt, dt, d.reg
+                ));
+                self.emit(&format!(
+                    "{} = getelementptr {}, {}* {}, i32 0, i32 2",
+                    cp, dt, dt, d.reg
+                ));
+                let idx = if nama == "sisip" {
+                    Some(self.ekspresi(&args[1]))
+                } else {
+                    None
+                };
                 let nilai_idx = if nama == "sisip" { 2 } else { 1 };
                 let v = self.ekspresi(&args[nilai_idx]);
                 let v = self.ubah_tipe(v, &elemen);
@@ -1403,7 +1721,10 @@ impl<'a> Codegen<'a> {
                         dp, lp, cp, bc, uk
                     ));
                 }
-                Val { reg: "0".into(), ty: Ty::Kosong }
+                Val {
+                    reg: "0".into(),
+                    ty: Ty::Kosong,
+                }
             }
             "panjang" => {
                 let a = &args[0];
@@ -1413,14 +1734,20 @@ impl<'a> Codegen<'a> {
                     lain => lain,
                 };
                 if let Ty::Array(_, n) = t {
-                    return Val { reg: n.to_string(), ty: Ty::Bil };
+                    return Val {
+                        reg: n.to_string(),
+                        ty: Ty::Bil,
+                    };
                 }
                 let v = self.nilai_tanpa_pindah(a);
                 let v = self.nilai_ref(v);
                 let at = self.llty(&v.ty);
                 let r = self.tmp();
                 self.emit(&format!("{} = extractvalue {} {}, 1", r, at, v.reg));
-                Val { reg: r, ty: Ty::Bil }
+                Val {
+                    reg: r,
+                    ty: Ty::Bil,
+                }
             }
             "ambil" => {
                 let (base_ptr, len, elemen) = self.ptr_wadah(&args[0]);
@@ -1429,7 +1756,10 @@ impl<'a> Codegen<'a> {
                 self.jaga_batas(&i64i, &len, e.span.baris);
                 let et = self.llty(&elemen);
                 let p = self.tmp();
-                self.emit(&format!("{} = getelementptr inbounds {}, {}* {}, i64 {}", p, et, et, base_ptr, i64i));
+                self.emit(&format!(
+                    "{} = getelementptr inbounds {}, {}* {}, i64 {}",
+                    p, et, et, base_ptr, i64i
+                ));
                 let v = self.muat(&p, &elemen);
                 Val { reg: v, ty: elemen }
             }
@@ -1442,9 +1772,15 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("call void @nusa_panic(i8* {}, i64 {})", p, l));
                 self.emit("unreachable");
                 self.ctx.buntu = true;
-                Val { reg: "0".into(), ty: Ty::Kosong }
+                Val {
+                    reg: "0".into(),
+                    ty: Ty::Kosong,
+                }
             }
-            _ => Val { reg: "0".into(), ty: Ty::Kosong },
+            _ => Val {
+                reg: "0".into(),
+                ty: Ty::Kosong,
+            },
         }
     }
 
@@ -1452,7 +1788,10 @@ impl<'a> Codegen<'a> {
         let perlu = match self.ctx.badan.lines().rev().find(|l| !l.trim().is_empty()) {
             Some(l) => {
                 let l = l.trim_start();
-                !(l.starts_with("ret ") || l.starts_with("br ") || l == "unreachable" || l.ends_with(':'))
+                !(l.starts_with("ret ")
+                    || l.starts_with("br ")
+                    || l == "unreachable"
+                    || l.ends_with(':'))
             }
             None => false,
         };
@@ -1475,7 +1814,14 @@ impl<'a> Codegen<'a> {
             let a = self.alloca(&t);
             self.simpan(&a, &p.ty, &pn);
             let daftar = self.perlu_bebas(&p.ty);
-            self.ikat(&p.nama, Lokal { ptr: a, ty: p.ty.clone(), daftar });
+            self.ikat(
+                &p.nama,
+                Lokal {
+                    ptr: a,
+                    ty: p.ty.clone(),
+                    daftar,
+                },
+            );
         }
         for s in &f.badan.stmts {
             self.stmt(s);
@@ -1502,7 +1848,12 @@ impl<'a> Codegen<'a> {
     }
 
     fn utama(&mut self) -> String {
-        let hasil = self.sema.sig.get("utama").map(|s| s.hasil.clone()).unwrap_or(Ty::Kosong);
+        let hasil = self
+            .sema
+            .sig
+            .get("utama")
+            .map(|s| s.hasil.clone())
+            .unwrap_or(Ty::Kosong);
         if hasil == Ty::Kosong {
             "define i32 @main() {\n  call void @nusa_utama()\n  ret i32 0\n}\n".to_string()
         } else {
@@ -1531,14 +1882,26 @@ impl<'a> Codegen<'a> {
             for (_, t) in &info.medan {
                 medan.push(self.llty(t));
             }
-            m.push_str(&format!("%struk.{} = type {{ {} }}\n", nama, medan.join(", ")));
+            m.push_str(&format!(
+                "%struk.{} = type {{ {} }}\n",
+                nama,
+                medan.join(", ")
+            ));
         }
-        let daftar: Vec<(String, Ty)> = self.daftar.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let daftar: Vec<(String, Ty)> = self
+            .daftar
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         for (k, t) in daftar {
             let e = self.llty(&t);
             m.push_str(&format!("%daftar.{} = type {{ {}*, i64, i64 }}\n", k, e));
         }
-        let irisan: Vec<(String, Ty)> = self.irisan.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let irisan: Vec<(String, Ty)> = self
+            .irisan
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         for (k, t) in irisan {
             let e = self.llty(&t);
             m.push_str(&format!("%irisan.{} = type {{ {}*, i64 }}\n", k, e));
@@ -1547,7 +1910,13 @@ impl<'a> Codegen<'a> {
             .sema
             .enumerasi
             .iter()
-            .map(|(k, v)| (k.clone(), self.varian.get(k).cloned().unwrap_or_default(), v.varian.clone()))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    self.varian.get(k).cloned().unwrap_or_default(),
+                    v.varian.clone(),
+                )
+            })
             .collect();
         for (_nama_enum, label, varian) in enum_urut {
             let mut isi = Vec::new();
@@ -1555,7 +1924,12 @@ impl<'a> Codegen<'a> {
                 let l = self.teks_konst(v);
                 isi.push(format!("%teks {{ i8* {}, i64 {} }}", l, v.len()));
             }
-            m.push_str(&format!("{} = private unnamed_addr constant [{} x %teks] [{}]\n", label, varian.len(), isi.join(", ")));
+            m.push_str(&format!(
+                "{} = private unnamed_addr constant [{} x %teks] [{}]\n",
+                label,
+                varian.len(),
+                isi.join(", ")
+            ));
         }
         m.push('\n');
         for (nama, isi) in &self.teks {
@@ -1566,7 +1940,12 @@ impl<'a> Codegen<'a> {
                     lain => s.push_str(&format!("\\{:02X}", lain)),
                 }
             }
-            m.push_str(&format!("{} = private unnamed_addr constant [{} x i8] c\"{}\"\n", nama, isi.len(), s));
+            m.push_str(&format!(
+                "{} = private unnamed_addr constant [{} x i8] c\"{}\"\n",
+                nama,
+                isi.len(),
+                s
+            ));
         }
         m.push('\n');
         m.push_str(&self.ekstern());
@@ -1582,7 +1961,14 @@ impl<'a> Codegen<'a> {
     fn ekstern(&self) -> String {
         let mut s = String::new();
         for w in [8u32, 32, 64] {
-            for (tanda, op) in [("s", "add"), ("s", "sub"), ("s", "mul"), ("u", "add"), ("u", "sub"), ("u", "mul")] {
+            for (tanda, op) in [
+                ("s", "add"),
+                ("s", "sub"),
+                ("s", "mul"),
+                ("u", "add"),
+                ("u", "sub"),
+                ("u", "mul"),
+            ] {
                 s.push_str(&format!(
                     "declare {{ i{}, i1 }} @llvm.{}{}.with.overflow.i{}(i{}, i{})\n",
                     w, tanda, op, w, w, w
@@ -1606,7 +1992,10 @@ impl<'a> Codegen<'a> {
             s.push_str(&format!("declare void @nusa_{}_log(i32)\n", e));
             s.push_str(&format!("declare void @nusa_{}_teks(i8*, i64)\n", e));
             s.push_str(&format!("declare void @nusa_{}_huruf(i8)\n", e));
-            s.push_str(&format!("declare void @nusa_{}_varian(i32, %teks*, i32)\n", e));
+            s.push_str(&format!(
+                "declare void @nusa_{}_varian(i32, %teks*, i32)\n",
+                e
+            ));
         }
         s
     }

@@ -49,12 +49,19 @@ impl<'a> Pengurai<'a> {
 
     fn intip(&self) -> &Tok {
         self.cap();
-        self.tok.get(self.pos).map(|t| &t.0).unwrap_or(&Tok::Selesai)
+        self.tok
+            .get(self.pos)
+            .map(|t| &t.0)
+            .unwrap_or(&Tok::Selesai)
     }
 
     fn cap(&self) {
         if self.pos > self.tok.len() * 64 + 10000 {
-            panic!("pengurai berputar tanpa kemajuan pada posisi {} ({:?})", self.pos, self.intip());
+            panic!(
+                "pengurai berputar tanpa kemajuan pada posisi {} ({:?})",
+                self.pos,
+                self.intip()
+            );
         }
     }
 
@@ -64,7 +71,10 @@ impl<'a> Pengurai<'a> {
 
     #[allow(dead_code)]
     fn intip_n(&self, n: usize) -> &Tok {
-        self.tok.get(self.pos + n).map(|t| &t.0).unwrap_or(&Tok::Selesai)
+        self.tok
+            .get(self.pos + n)
+            .map(|t| &t.0)
+            .unwrap_or(&Tok::Selesai)
     }
 
     fn maju(&mut self) -> (Tok, Span) {
@@ -97,7 +107,12 @@ impl<'a> Pengurai<'a> {
             self.diag.push(Diagnostik::galat(
                 self.berkas,
                 sp,
-                format!("mengharapkan {} pada {}, tetapi menemukan {}", t.sebutan(), konteks, self.intip().sebutan()),
+                format!(
+                    "mengharapkan {} pada {}, tetapi menemukan {}",
+                    t.sebutan(),
+                    konteks,
+                    self.intip().sebutan()
+                ),
                 "E0101",
             ));
             None
@@ -115,7 +130,11 @@ impl<'a> Pengurai<'a> {
                 self.diag.push(Diagnostik::galat(
                     self.berkas,
                     sp,
-                    format!("mengharapkan nama pada {}, tetapi menemukan {}", konteks, lain.sebutan()),
+                    format!(
+                        "mengharapkan nama pada {}, tetapi menemukan {}",
+                        konteks,
+                        lain.sebutan()
+                    ),
                     "E0102",
                 ));
                 None
@@ -154,7 +173,8 @@ impl<'a> Pengurai<'a> {
                         self.diag.push(Diagnostik::galat(
                             self.berkas,
                             sp,
-                            "`impor` memerlukan teks nama modul, mis. `impor \"matematika\"`".into(),
+                            "`impor` memerlukan teks nama modul, mis. `impor \"matematika\"`"
+                                .into(),
                             "E0103",
                         ));
                         self.lompat_ke_batas();
@@ -213,7 +233,11 @@ impl<'a> Pengurai<'a> {
         self.harap(Tok::Sama, "deklarasi `jenis`")?;
         let ty = self.tipe();
         self.makan(&Tok::TitikKoma);
-        Some(Alias { nama, ty, span: mulai })
+        Some(Alias {
+            nama,
+            ty,
+            span: mulai,
+        })
     }
 
     fn struk(&mut self) -> Option<Struk> {
@@ -240,14 +264,22 @@ impl<'a> Pengurai<'a> {
             };
             self.harap(Tok::TitikDua, "medan struk");
             let ty = self.tipe();
-            medan.push(Param { nama: mn, ty, span: msp });
+            medan.push(Param {
+                nama: mn,
+                ty,
+                span: msp,
+            });
             if !self.makan(&Tok::Koma) {
                 self.harap(Tok::RBrace, "akhir daftar medan")?;
                 break;
             }
         }
         self.makan(&Tok::TitikKoma);
-        Some(Struk { nama, medan, span: mulai })
+        Some(Struk {
+            nama,
+            medan,
+            span: mulai,
+        })
     }
 
     fn enumerasi(&mut self) -> Option<Enumerasi> {
@@ -272,7 +304,11 @@ impl<'a> Pengurai<'a> {
             }
         }
         self.makan(&Tok::TitikKoma);
-        Some(Enumerasi { nama, varian, span: mulai })
+        Some(Enumerasi {
+            nama,
+            varian,
+            span: mulai,
+        })
     }
 
     fn fungsi(&mut self) -> Option<Fungsi> {
@@ -296,21 +332,32 @@ impl<'a> Pengurai<'a> {
                         Diagnostik::galat(
                             self.berkas,
                             sp,
-                            format!("parameter `{}` memerlukan anotasi tipe, mis. `{}: bil`", pn, pn),
+                            format!(
+                                "parameter `{}` memerlukan anotasi tipe, mis. `{}: bil`",
+                                pn, pn
+                            ),
                             "E0106",
                         )
                         .saran("NUSA selalu menuntut tipe pada batas fungsi agar aman tipe."),
                     );
                     Ty::Bil
                 };
-                params.push(Param { nama: pn, ty, span: psp });
+                params.push(Param {
+                    nama: pn,
+                    ty,
+                    span: psp,
+                });
                 if !self.makan(&Tok::Koma) {
                     break;
                 }
             }
             self.harap(Tok::RPar, "akhir parameter")?;
         }
-        let hasil = if self.makan(&Tok::Panah) { self.tipe() } else { Ty::Kosong };
+        let hasil = if self.makan(&Tok::Panah) {
+            self.tipe()
+        } else {
+            Ty::Kosong
+        };
         let mut perlu = Vec::new();
         let mut jamin = Vec::new();
         loop {
@@ -330,14 +377,29 @@ impl<'a> Pengurai<'a> {
         }
         let badan = if luar {
             if let Some(sp) = self.harap(Tok::TitikKoma, "akhir deklarasi `luar fungsi`") {
-                Block { stmts: Vec::new(), span: sp }
+                Block {
+                    stmts: Vec::new(),
+                    span: sp,
+                }
             } else {
-                Block { stmts: Vec::new(), span: mulai }
+                Block {
+                    stmts: Vec::new(),
+                    span: mulai,
+                }
             }
         } else {
             self.blok()
         };
-        Some(Fungsi { nama, params, hasil, perlu, jamin, badan, span: mulai, luar })
+        Some(Fungsi {
+            nama,
+            params,
+            hasil,
+            perlu,
+            jamin,
+            badan,
+            span: mulai,
+            luar,
+        })
     }
 
     fn blok(&mut self) -> Block {
@@ -352,10 +414,16 @@ impl<'a> Pengurai<'a> {
             while self.intip() != &Tok::Selesai {
                 self.maju();
             }
-            return Block { stmts: Vec::new(), span: sp };
+            return Block {
+                stmts: Vec::new(),
+                span: sp,
+            };
         }
         if self.harap(Tok::LBrace, "awal blok").is_none() {
-            return Block { stmts: Vec::new(), span: sp };
+            return Block {
+                stmts: Vec::new(),
+                span: sp,
+            };
         }
         self.kedalaman += 1;
         let mut stmts = Vec::new();
@@ -391,7 +459,11 @@ impl<'a> Pengurai<'a> {
                 let tetap = self.intip() == &Tok::Tetap;
                 self.maju();
                 let (nama, nsp) = self.harap_ident("nama variabel")?;
-                let ty = if self.makan(&Tok::TitikDua) { Some(self.tipe()) } else { None };
+                let ty = if self.makan(&Tok::TitikDua) {
+                    Some(self.tipe())
+                } else {
+                    None
+                };
                 let nilai = if self.makan(&Tok::Sama) {
                     self.ekspresi()
                 } else {
@@ -404,7 +476,13 @@ impl<'a> Pengurai<'a> {
                     self.eks_bil(0, nsp)
                 };
                 self.makan(&Tok::TitikKoma);
-                Some(Stmt::Ikat { tetap, nama, ty, nilai, span: sp })
+                Some(Stmt::Ikat {
+                    tetap,
+                    nama,
+                    ty,
+                    nilai,
+                    span: sp,
+                })
             }
             Tok::Jika => {
                 self.maju();
@@ -414,14 +492,22 @@ impl<'a> Pengurai<'a> {
                     if self.intip() == &Tok::Jika {
                         let sp2 = self.intip_span();
                         let dalam = self.stmt()?;
-                        Some(Block { stmts: vec![dalam], span: sp2 })
+                        Some(Block {
+                            stmts: vec![dalam],
+                            span: sp2,
+                        })
                     } else {
                         Some(self.blok())
                     }
                 } else {
                     None
                 };
-                Some(Stmt::Jika { kond, maka, lain, span: sp })
+                Some(Stmt::Jika {
+                    kond,
+                    maka,
+                    lain,
+                    span: sp,
+                })
             }
             Tok::Selama => {
                 self.maju();
@@ -431,7 +517,12 @@ impl<'a> Pengurai<'a> {
                     invarian.push(self.kondisi());
                 }
                 let badan = self.blok();
-                Some(Stmt::Selama { kond, invarian, badan, span: sp })
+                Some(Stmt::Selama {
+                    kond,
+                    invarian,
+                    badan,
+                    span: sp,
+                })
             }
             Tok::Untuk => {
                 self.maju();
@@ -445,7 +536,10 @@ impl<'a> Pengurai<'a> {
                 self.larang_struk_lit += 1;
                 let awal = self.ekspresi();
                 let rentang = if gaya_dari {
-                    if self.harap(Tok::Sampai, "batas `untuk ... sampai ...`").is_some() {
+                    if self
+                        .harap(Tok::Sampai, "batas `untuk ... sampai ...`")
+                        .is_some()
+                    {
                         Some((self.ekspresi(), true))
                     } else {
                         None
@@ -459,8 +553,20 @@ impl<'a> Pengurai<'a> {
                 self.larang_struk_lit -= 1;
                 let badan = self.blok();
                 match rentang {
-                    Some((akhir, inklusif)) => Some(Stmt::UntukRentang { nama, dari: awal, sampai: akhir, inklusif, badan, span: sp }),
-                    None => Some(Stmt::UntukIsi { nama, wadah: awal, badan, span: sp }),
+                    Some((akhir, inklusif)) => Some(Stmt::UntukRentang {
+                        nama,
+                        dari: awal,
+                        sampai: akhir,
+                        inklusif,
+                        badan,
+                        span: sp,
+                    }),
+                    None => Some(Stmt::UntukIsi {
+                        nama,
+                        wadah: awal,
+                        badan,
+                        span: sp,
+                    }),
                 }
             }
             Tok::Kembali => {
@@ -487,7 +593,11 @@ impl<'a> Pengurai<'a> {
                     None
                 };
                 self.makan(&Tok::TitikKoma);
-                Some(Stmt::Tegas { kond, pesan, span: sp })
+                Some(Stmt::Tegas {
+                    kond,
+                    pesan,
+                    span: sp,
+                })
             }
             Tok::Henti => {
                 self.maju();
@@ -502,8 +612,17 @@ impl<'a> Pengurai<'a> {
             Tok::Ulang => {
                 self.maju();
                 let badan = self.blok();
-                let kond = Expr { id: self.id_baru(), span: sp, kind: ExprKind::Log(true) };
-                Some(Stmt::Selama { kond, invarian: Vec::new(), badan, span: sp })
+                let kond = Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Log(true),
+                };
+                Some(Stmt::Selama {
+                    kond,
+                    invarian: Vec::new(),
+                    badan,
+                    span: sp,
+                })
             }
             Tok::Cocok => {
                 self.maju();
@@ -539,7 +658,12 @@ impl<'a> Pengurai<'a> {
                         break;
                     }
                 }
-                Some(Stmt::Cocok { nilai, kasus, lainnya, span: sp })
+                Some(Stmt::Cocok {
+                    nilai,
+                    kasus,
+                    lainnya,
+                    span: sp,
+                })
             }
             Tok::LBrace => Some(Stmt::Blok(self.blok())),
             Tok::Takaman => {
@@ -561,9 +685,12 @@ impl<'a> Pengurai<'a> {
                 self.larang_compound += 1;
                 let e = self.ekspresi();
                 self.larang_compound -= 1;
-                let op_tugas = if self.dua_token(&Tok::Kecil, &Tok::Kecil) && self.intip_n(2) == &Tok::Sama {
+                let op_tugas = if self.dua_token(&Tok::Kecil, &Tok::Kecil)
+                    && self.intip_n(2) == &Tok::Sama
+                {
                     Some(BinOp::GeserKiri)
-                } else if self.dua_token(&Tok::Besar, &Tok::Besar) && self.intip_n(2) == &Tok::Sama {
+                } else if self.dua_token(&Tok::Besar, &Tok::Besar) && self.intip_n(2) == &Tok::Sama
+                {
                     Some(BinOp::GeserKanan)
                 } else if self.dua_token(&Tok::Plus, &Tok::Sama) {
                     Some(BinOp::Tambah)
@@ -591,11 +718,19 @@ impl<'a> Pengurai<'a> {
                         span: e.span.gabung(&nilai.span).gabung(&sp),
                         kind: ExprKind::Biner(op, Box::new(e.clone()), Box::new(nilai)),
                     };
-                    Some(Stmt::Tugas { target: e, nilai: bin, span: sp })
+                    Some(Stmt::Tugas {
+                        target: e,
+                        nilai: bin,
+                        span: sp,
+                    })
                 } else if self.makan(&Tok::Sama) {
                     let nilai = self.ekspresi();
                     self.makan(&Tok::TitikKoma);
-                    Some(Stmt::Tugas { target: e, nilai, span: sp })
+                    Some(Stmt::Tugas {
+                        target: e,
+                        nilai,
+                        span: sp,
+                    })
                 } else {
                     self.makan(&Tok::TitikKoma);
                     Some(Stmt::Ekspresi(e))
@@ -605,7 +740,11 @@ impl<'a> Pengurai<'a> {
     }
 
     fn eks_bil(&mut self, v: i64, sp: Span) -> Expr {
-        Expr { id: self.id_baru(), span: sp, kind: ExprKind::Bil(v) }
+        Expr {
+            id: self.id_baru(),
+            span: sp,
+            kind: ExprKind::Bil(v),
+        }
     }
 
     fn kondisi(&mut self) -> Expr {
@@ -642,7 +781,11 @@ impl<'a> Pengurai<'a> {
                 let sp = self.maju().1;
                 let kanan = self.dan();
                 let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-                kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(BinOp::Atau, Box::new(kiri), Box::new(kanan)) };
+                kiri = Expr {
+                    id: self.id_baru(),
+                    span,
+                    kind: ExprKind::Biner(BinOp::Atau, Box::new(kiri), Box::new(kanan)),
+                };
             } else {
                 return kiri;
             }
@@ -656,7 +799,11 @@ impl<'a> Pengurai<'a> {
                 let sp = self.maju().1;
                 let kanan = self.banding();
                 let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-                kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(BinOp::Dan, Box::new(kiri), Box::new(kanan)) };
+                kiri = Expr {
+                    id: self.id_baru(),
+                    span,
+                    kind: ExprKind::Biner(BinOp::Dan, Box::new(kiri), Box::new(kanan)),
+                };
             } else {
                 return kiri;
             }
@@ -678,7 +825,11 @@ impl<'a> Pengurai<'a> {
             let sp = self.maju().1;
             let kanan = self.geser();
             let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-            kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)) };
+            kiri = Expr {
+                id: self.id_baru(),
+                span,
+                kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)),
+            };
         }
     }
 
@@ -712,7 +863,11 @@ impl<'a> Pengurai<'a> {
             self.maju();
             let kanan = self.tambah();
             let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-            kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)) };
+            kiri = Expr {
+                id: self.id_baru(),
+                span,
+                kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)),
+            };
         }
     }
 
@@ -730,7 +885,11 @@ impl<'a> Pengurai<'a> {
             let sp = self.maju().1;
             let kanan = self.kali();
             let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-            kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)) };
+            kiri = Expr {
+                id: self.id_baru(),
+                span,
+                kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)),
+            };
         }
     }
 
@@ -749,7 +908,11 @@ impl<'a> Pengurai<'a> {
             let sp = self.maju().1;
             let kanan = self.uner();
             let span = kiri.span.gabung(&kanan.span).gabung(&sp);
-            kiri = Expr { id: self.id_baru(), span, kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)) };
+            kiri = Expr {
+                id: self.id_baru(),
+                span,
+                kind: ExprKind::Biner(op, Box::new(kiri), Box::new(kanan)),
+            };
         }
     }
 
@@ -779,25 +942,44 @@ impl<'a> Pengurai<'a> {
                 if let Tok::Bil(v) = *self.intip() {
                     if v == 9_223_372_036_854_775_808 {
                         self.maju();
-                        return Expr { id: self.id_baru(), span: sp, kind: ExprKind::Bil(i64::MIN) };
+                        return Expr {
+                            id: self.id_baru(),
+                            span: sp,
+                            kind: ExprKind::Bil(i64::MIN),
+                        };
                     }
                 }
                 let dalam = self.uner();
                 let span = sp.gabung(&dalam.span);
-                Expr { id: self.id_baru(), span, kind: ExprKind::Uner(UnOp::Neg, Box::new(dalam)) }
+                Expr {
+                    id: self.id_baru(),
+                    span,
+                    kind: ExprKind::Uner(UnOp::Neg, Box::new(dalam)),
+                }
             }
             Tok::TandaSeru | Tok::Bukan => {
                 self.maju();
                 let dalam = self.uner();
                 let span = sp.gabung(&dalam.span);
-                Expr { id: self.id_baru(), span, kind: ExprKind::Uner(UnOp::Bukan, Box::new(dalam)) }
+                Expr {
+                    id: self.id_baru(),
+                    span,
+                    kind: ExprKind::Uner(UnOp::Bukan, Box::new(dalam)),
+                }
             }
             Tok::Amp => {
                 self.maju();
                 let ubah = self.makan(&Tok::Ubah);
                 let dalam = self.uner();
                 let span = sp.gabung(&dalam.span);
-                Expr { id: self.id_baru(), span, kind: ExprKind::Alamat { ubah, dasar: Box::new(dalam) } }
+                Expr {
+                    id: self.id_baru(),
+                    span,
+                    kind: ExprKind::Alamat {
+                        ubah,
+                        dasar: Box::new(dalam),
+                    },
+                }
             }
             _ => self.postfix(),
         }
@@ -823,14 +1005,25 @@ impl<'a> Pengurai<'a> {
                             (String::new(), e.span.gabung(&sp))
                         }
                     };
-                    e = Expr { id: self.id_baru(), span, kind: ExprKind::Panggil { nama, args } };
+                    e = Expr {
+                        id: self.id_baru(),
+                        span,
+                        kind: ExprKind::Panggil { nama, args },
+                    };
                 }
                 Tok::LBracket => {
                     let sp = self.maju().1;
                     let idx = self.ekspresi();
                     let akhir = self.harap(Tok::RBracket, "indeks").unwrap_or(sp);
                     let span = e.span.gabung(&akhir);
-                    e = Expr { id: self.id_baru(), span, kind: ExprKind::Indeks { dasar: Box::new(e), indeks: Box::new(idx) } };
+                    e = Expr {
+                        id: self.id_baru(),
+                        span,
+                        kind: ExprKind::Indeks {
+                            dasar: Box::new(e),
+                            indeks: Box::new(idx),
+                        },
+                    };
                 }
                 Tok::Titik => {
                     self.maju();
@@ -839,12 +1032,20 @@ impl<'a> Pengurai<'a> {
                         None => return e,
                     };
                     if let ExprKind::Var(enumerasi) = &e.kind {
-                        if nama.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                        if nama
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false)
+                        {
                             let span = e.span.gabung(&nsp);
                             e = Expr {
                                 id: self.id_baru(),
                                 span,
-                                kind: ExprKind::Varian { enumerasi: enumerasi.clone(), varian: nama },
+                                kind: ExprKind::Varian {
+                                    enumerasi: enumerasi.clone(),
+                                    varian: nama,
+                                },
                             };
                             continue;
                         }
@@ -857,19 +1058,36 @@ impl<'a> Pengurai<'a> {
                         let panggil = Expr {
                             id: self.id_baru(),
                             span,
-                            kind: ExprKind::Panggil { nama: format!("__metode__{}", nama), args: vec![dasar.clone()].into_iter().chain(args).collect() },
+                            kind: ExprKind::Panggil {
+                                nama: format!("__metode__{}", nama),
+                                args: vec![dasar.clone()].into_iter().chain(args).collect(),
+                            },
                         };
                         e = panggil;
                     } else {
                         let span = e.span.gabung(&nsp);
-                        e = Expr { id: self.id_baru(), span, kind: ExprKind::Medan { dasar: Box::new(e), nama } };
+                        e = Expr {
+                            id: self.id_baru(),
+                            span,
+                            kind: ExprKind::Medan {
+                                dasar: Box::new(e),
+                                nama,
+                            },
+                        };
                     }
                 }
                 Tok::Sebagai => {
                     self.maju();
                     let ty = self.tipe();
                     let span = e.span;
-                    e = Expr { id: self.id_baru(), span, kind: ExprKind::Sebagai { nilai: Box::new(e), ty } };
+                    e = Expr {
+                        id: self.id_baru(),
+                        span,
+                        kind: ExprKind::Sebagai {
+                            nilai: Box::new(e),
+                            ty,
+                        },
+                    };
                 }
                 _ => return e,
             }
@@ -908,27 +1126,51 @@ impl<'a> Pengurai<'a> {
                     ));
                     return self.eks_bil(0, sp);
                 }
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Bil(v as i64) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Bil(v as i64),
+                }
             }
             Tok::Char(c) => {
                 self.maju();
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Huruf(c) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Huruf(c),
+                }
             }
             Tok::Pecah(v) => {
                 self.maju();
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Pecah(v) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Pecah(v),
+                }
             }
             Tok::Teks(s) => {
                 self.maju();
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Teks(s) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Teks(s),
+                }
             }
             Tok::Benar => {
                 self.maju();
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Log(true) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Log(true),
+                }
             }
             Tok::Salah => {
                 self.maju();
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Log(false) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Log(false),
+                }
             }
             Tok::LPar => {
                 self.maju();
@@ -950,9 +1192,17 @@ impl<'a> Pengurai<'a> {
                         }
                     }
                     let akhir = self.harap(Tok::RBracket, "akhir larik").unwrap_or(sp);
-                    return Expr { id: self.id_baru(), span: sp.gabung(&akhir), kind: ExprKind::ArrayLit(isi) };
+                    return Expr {
+                        id: self.id_baru(),
+                        span: sp.gabung(&akhir),
+                        kind: ExprKind::ArrayLit(isi),
+                    };
                 }
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::ArrayLit(isi) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::ArrayLit(isi),
+                }
             }
             Tok::Ident(nama) => {
                 self.maju();
@@ -962,7 +1212,14 @@ impl<'a> Pengurai<'a> {
                         Some(v) => v,
                         None => return self.eks_bil(0, sp),
                     };
-                    return Expr { id: self.id_baru(), span: sp.gabung(&vsp), kind: ExprKind::Varian { enumerasi: nama, varian } };
+                    return Expr {
+                        id: self.id_baru(),
+                        span: sp.gabung(&vsp),
+                        kind: ExprKind::Varian {
+                            enumerasi: nama,
+                            varian,
+                        },
+                    };
                 }
                 if self.intip() == &Tok::LBrace && self.larang_struk_lit == 0 {
                     let awal = self.intip_span();
@@ -996,9 +1253,17 @@ impl<'a> Pengurai<'a> {
                         }
                         self.harap(Tok::RBrace, "akhir literal struk");
                     }
-                    return Expr { id: self.id_baru(), span: sp.gabung(&awal), kind: ExprKind::StrukLit { nama, medan } };
+                    return Expr {
+                        id: self.id_baru(),
+                        span: sp.gabung(&awal),
+                        kind: ExprKind::StrukLit { nama, medan },
+                    };
                 }
-                Expr { id: self.id_baru(), span: sp, kind: ExprKind::Var(nama) }
+                Expr {
+                    id: self.id_baru(),
+                    span: sp,
+                    kind: ExprKind::Var(nama),
+                }
             }
             lain => {
                 self.diag.push(Diagnostik::galat(
@@ -1040,7 +1305,10 @@ impl<'a> Pengurai<'a> {
                 self.maju();
                 let ubah = self.makan(&Tok::Ubah);
                 let dalam = self.tipe();
-                Ty::Ref { ubah, dalam: Box::new(dalam) }
+                Ty::Ref {
+                    ubah,
+                    dalam: Box::new(dalam),
+                }
             }
             Tok::LBracket => {
                 self.maju();
@@ -1151,7 +1419,11 @@ impl<'a> Pengurai<'a> {
 /// Ganti nama `jenis` dengan tipe yang dirujuknya. Dilakukan setelah seluruh
 /// program diurai agar alias boleh dideklarasikan lebih dulu atau sesudahnya.
 fn substitusi_alias(prog: &mut Prog) {
-    let map: HashMap<String, Ty> = prog.alias.iter().map(|a| (a.nama.clone(), a.ty.clone())).collect();
+    let map: HashMap<String, Ty> = prog
+        .alias
+        .iter()
+        .map(|a| (a.nama.clone(), a.ty.clone()))
+        .collect();
     fn res(t: &Ty, map: &HashMap<String, Ty>, d: u32) -> Ty {
         if d > 64 {
             return t.clone();
@@ -1164,7 +1436,10 @@ fn substitusi_alias(prog: &mut Prog) {
             Ty::Array(a, n) => Ty::Array(Box::new(res(a, map, d + 1)), *n),
             Ty::Daftar(a) => Ty::Daftar(Box::new(res(a, map, d + 1))),
             Ty::Irisan(a) => Ty::Irisan(Box::new(res(a, map, d + 1))),
-            Ty::Ref { ubah, dalam } => Ty::Ref { ubah: *ubah, dalam: Box::new(res(dalam, map, d + 1)) },
+            Ty::Ref { ubah, dalam } => Ty::Ref {
+                ubah: *ubah,
+                dalam: Box::new(res(dalam, map, d + 1)),
+            },
             lain => lain.clone(),
         }
     }
@@ -1210,21 +1485,33 @@ fn substitusi_alias(prog: &mut Prog) {
                     eks(target, map);
                     eks(nilai, map);
                 }
-                Stmt::Jika { kond, maka, lain, .. } => {
+                Stmt::Jika {
+                    kond, maka, lain, ..
+                } => {
                     eks(kond, map);
                     blok(maka, map);
                     if let Some(l) = lain {
                         blok(l, map);
                     }
                 }
-                Stmt::Selama { kond, invarian, badan, .. } => {
+                Stmt::Selama {
+                    kond,
+                    invarian,
+                    badan,
+                    ..
+                } => {
                     eks(kond, map);
                     for i in invarian {
                         eks(i, map);
                     }
                     blok(badan, map);
                 }
-                Stmt::UntukRentang { dari, sampai, badan, .. } => {
+                Stmt::UntukRentang {
+                    dari,
+                    sampai,
+                    badan,
+                    ..
+                } => {
                     eks(dari, map);
                     eks(sampai, map);
                     blok(badan, map);
@@ -1236,7 +1523,12 @@ fn substitusi_alias(prog: &mut Prog) {
                 Stmt::Kembali(Some(v), _) => eks(v, map),
                 Stmt::Tegas { kond, .. } => eks(kond, map),
                 Stmt::Ekspresi(e) => eks(e, map),
-                Stmt::Cocok { nilai, kasus, lainnya, .. } => {
+                Stmt::Cocok {
+                    nilai,
+                    kasus,
+                    lainnya,
+                    ..
+                } => {
                     eks(nilai, map);
                     for (_, b) in kasus {
                         blok(b, map);
