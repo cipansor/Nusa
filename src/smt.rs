@@ -364,10 +364,15 @@ impl<'a> Vc<'a> {
                 nama, nilai, ty, ..
             } => {
                 let mut n = self.eks(nilai, j);
+                let nilai_ty = n.ty.clone();
                 if let Some(t) = ty {
                     n.ty = t.clone();
                     if let Ty::Array(_, k) = t {
                         n.panjang = Some(k.to_string());
+                    } else if n.panjang.is_none() {
+                        if let Ty::Array(_, k) = &nilai_ty {
+                            n.panjang = Some(k.to_string());
+                        }
                     }
                 }
                 j.env.insert(nama.clone(), n);
@@ -375,12 +380,17 @@ impl<'a> Vc<'a> {
             Stmt::Tugas { target, nilai, .. } => match &target.kind {
                 ExprKind::Var(nama) => {
                     let mut n = self.eks(nilai, j);
+                    let nilai_ty = n.ty.clone();
                     // Tipe deklarasi (mis. irisan) harus dipertahankan;
                     // panjang tetap mengikuti nilai yang baru ditugaskan.
                     if let Some(lama) = j.env.get(nama) {
                         n.ty = lama.ty.clone();
                         if let Ty::Array(_, k) = &n.ty {
                             n.panjang = Some(k.to_string());
+                        } else if n.panjang.is_none() {
+                            if let Ty::Array(_, k) = &nilai_ty {
+                                n.panjang = Some(k.to_string());
+                            }
                         }
                     }
                     j.env.insert(nama.clone(), n);
