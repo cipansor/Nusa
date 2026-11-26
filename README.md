@@ -499,12 +499,12 @@ dibangkitkan, tetap cepat karena `llc -O2`.
 ## 9. Uji
 
 ```bash
-cargo test                 # 42 uji regresi Rust (penafsir + biner bila LLVM ada)
+cargo test                 # 45 uji regresi Rust (penafsir + biner bila LLVM ada)
 ./uji/jalankan.sh          # uji ujung-ke-ujung + kesetaraan dua mesin
 ```
 
 ```
-test result: ok. 42 passed; 0 failed
+test result: ok. 45 passed; 0 failed
 ringkasan uji: 48 lulus, 0 gagal
 ```
 

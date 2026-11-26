@@ -240,7 +240,7 @@ impl<'a> Vc<'a> {
         let s = format!("{}_{}", bersih, *v);
         let srt = sort(ty);
         self.decl.push(format!("(declare-fun {} () {})", s, srt));
-        if matches!(ty, Ty::Array(_, _) | Ty::Irisan(_)) && srt == "(Array Int Int)" {
+        if matches!(ty, Ty::Array(_, _) | Ty::Irisan(_)) {
             let l = format!("{}_len", s);
             self.decl.push(format!("(declare-fun {} () Int)", l));
         }
@@ -251,6 +251,21 @@ impl<'a> Vc<'a> {
         match &n.panjang {
             Some(p) => p.clone(),
             None => "0".into(),
+        }
+    }
+
+    fn lengkapi_panjang(&mut self, n: &mut Nl, j: &mut Jalur) {
+        if n.panjang.is_some() {
+            return;
+        }
+        match &n.ty {
+            Ty::Array(_, k) => n.panjang = Some(k.to_string()),
+            Ty::Irisan(_) => {
+                let l = self.segar(&format!("{}_panjang", n.term), &Ty::Bil);
+                j.pc.push(rentang_panjang(&l));
+                n.panjang = Some(l);
+            }
+            _ => {}
         }
     }
 
@@ -303,14 +318,13 @@ impl<'a> Vc<'a> {
             let s = self.segar(&p.nama, &p.ty);
             let panjang = match &p.ty {
                 Ty::Array(_, n) => Some(n.to_string()),
-                Ty::Irisan(_) => Some(format!("{}_len", s)),
+                Ty::Irisan(_) => {
+                    let l = self.segar(&format!("{}_len", s), &Ty::Bil);
+                    pc.push(rentang_panjang(&l));
+                    Some(l)
+                }
                 _ => None,
             };
-            if let Ty::Irisan(_) = p.ty {
-                if let Some(l) = &panjang {
-                    pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
-                }
-            }
             if let Some(d) = domain(&p.ty, &s) {
                 pc.push(d);
             }
@@ -606,11 +620,8 @@ impl<'a> Vc<'a> {
             }
             Stmt::Kembali(nilai, _) => {
                 if let Some(e) = nilai {
-                    let n = self.eks(e, j);
-                    if !yg_bulat(&n.ty) && !bool_ty(&n.ty) {
-                        j.hidup = false;
-                        return;
-                    }
+                    let mut n = self.eks(e, j);
+                    self.lengkapi_panjang(&mut n, j);
                     let jamin = self.fungsi.jamin.clone();
                     if !jamin.is_empty() {
                         let mut jj = j.clone();
@@ -627,6 +638,10 @@ impl<'a> Vc<'a> {
                             );
                         }
                         self.spek_selesai(lama_spek);
+                    }
+                    if !yg_bulat(&n.ty) && !bool_ty(&n.ty) {
+                        j.hidup = false;
+                        return;
                     }
                 }
                 j.hidup = false;
@@ -1133,7 +1148,7 @@ impl<'a> Vc<'a> {
         let panjang_hasil = match &hasil {
             Ty::Array(_, n) => Some(n.to_string()),
             Ty::Irisan(_) => {
-                let l = format!("{}_len", res);
+                let l = self.segar(&format!("{}_len", res), &Ty::Bil);
                 j.pc.push(rentang_panjang(&l));
                 Some(l)
             }
@@ -1173,9 +1188,14 @@ impl<'a> Vc<'a> {
                         &pc,
                     );
                 }
+                // Kontrak hasil koleksi belum dapat dipakai sebagai asumsi
+                // pemanggil; return verifier tetap memeriksanya.
+                let koleksi = matches!(hasil, Ty::Array(_, _) | Ty::Irisan(_));
                 for e in &jamin {
                     let t = self.eks(e, &mut jj);
-                    j.pc.push(t.term);
+                    if !koleksi {
+                        j.pc.push(t.term);
+                    }
                 }
                 self.spek_selesai(lama_spek);
             }
