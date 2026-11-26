@@ -127,6 +127,47 @@ fungsi utama() -> bil {
 }
 
 #[test]
+fn min_dibagi_atau_disisa_minus_satu_ditangkap() {
+    for (nama, op) in [("bagi", "/"), ("sisa", "%")] {
+        let d = dir(nama);
+        let f = tulis(
+            &d,
+            "program.ns",
+            &format!(
+                "fungsi utama() -> bil {{\n    tetap x: bil = -9223372036854775808;\n    cetak(x {op} -1)\n    kembali 0\n}}\n"
+            ),
+        );
+        let i = jalankan(&["jalan", f.to_str().unwrap()]);
+        assert_eq!(
+            i.status.code(),
+            Some(1),
+            "{nama}: penafsir: {}",
+            teks_galat(&i)
+        );
+        assert!(
+            teks_galat(&i).contains("luber bilangan"),
+            "{nama}: {}",
+            teks_galat(&i)
+        );
+        if ada_llc() {
+            let b = d.join("program");
+            assert!(
+                jalankan(&["bangun", f.to_str().unwrap(), "-o", b.to_str().unwrap()])
+                    .status
+                    .success()
+            );
+            let r = Command::new(&b).output().unwrap();
+            assert_eq!(r.status.code(), Some(1), "{nama}: biner");
+            assert!(
+                teks_galat(&r).contains("luber bilangan"),
+                "{nama}: {}",
+                teks_galat(&r)
+            );
+        }
+    }
+}
+
+#[test]
 fn konversi_pecah_ke_bulat_dan_sebaliknya() {
     let k = sama_di_dua_mesin(
         "konversi-pecah",
@@ -263,7 +304,7 @@ fungsi utama() -> bil {
 
 #[test]
 fn kedalaman_ekspresi_dibatasi_tanpa_crash() {
-    let dalam = format!("{}benar", "!".repeat(5000));
+    let dalam = format!("{}benar", "!".repeat(20000));
     periksa(
         "kedalaman",
         &format!("fungsi utama() -> bil {{ cetak({dalam}) kembali 0 }}\n"),
@@ -312,6 +353,14 @@ fungsi utama() -> bil {
     let i = jalankan(&["jalan", utama.to_str().unwrap()]);
     assert!(i.status.success(), "{}", teks_galat(&i));
     assert_eq!(teks_keluar(&i), "hasil=7\n");
+    if ada_llc() {
+        let b = d.join("utama");
+        let c = jalankan(&["bangun", utama.to_str().unwrap(), "-o", b.to_str().unwrap()]);
+        assert!(c.status.success(), "{}", teks_galat(&c));
+        let r = Command::new(&b).output().unwrap();
+        assert!(r.status.success(), "{}", teks_galat(&r));
+        assert_eq!(teks_keluar(&r), "hasil=7\n");
+    }
 
     let d2 = dir("impor-duplikat");
     tulis(&d2, "a.ns", "fungsi sama() -> bil { kembali 1 }\n");
@@ -324,6 +373,37 @@ fungsi utama() -> bil {
     let o = jalankan(&["periksa", m.to_str().unwrap()]);
     assert!(!o.status.success());
     assert!(teks_galat(&o).contains("E0208"), "{}", teks_galat(&o));
+}
+
+#[test]
+fn pindah_medan_non_salin_dilacak() {
+    periksa(
+        "pindah-medan-terlarang",
+        r#"
+struk S { a: Daftar<bil>, b: bil }
+fungsi pakai(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub s: S = S { a: daftar(), b: 2 };
+    cetak(pakai(s.a))
+    cetak(s.a.panjang())
+    kembali 0
+}
+"#,
+        "E0320",
+    );
+    let k = sama_di_dua_mesin(
+        "pindah-medan-sah",
+        r#"
+struk S { a: Daftar<bil>, b: bil }
+fungsi pakai(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub s: S = S { a: daftar(), b: 42 };
+    cetak("a=", pakai(s.a), " b=", s.b)
+    kembali 0
+}
+"#,
+    );
+    assert_eq!(k, "a=0 b=42\n");
 }
 
 #[test]

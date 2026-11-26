@@ -499,12 +499,12 @@ dibangkitkan, tetap cepat karena `llc -O2`.
 ## 9. Uji
 
 ```bash
-cargo test                 # 14 uji regresi Rust (penafsir + biner bila LLVM ada)
+cargo test                 # 16 uji regresi Rust (penafsir + biner bila LLVM ada)
 ./uji/jalankan.sh          # uji ujung-ke-ujung + kesetaraan dua mesin
 ```
 
 ```
-test result: ok. 14 passed; 0 failed
+test result: ok. 16 passed; 0 failed
 ringkasan uji: 48 lulus, 0 gagal
 ```
 
@@ -514,10 +514,11 @@ dengan biner** pada 7 contoh dan satu program unit (bilangan bertipe sempit,
 vs. jujur tak terbukti), penjaga runtime di kedua mode, penolakan
 `--bebas-jaga`, dan 8 program tidak aman yang **wajib** ditolak dengan kode
 galat tertentu — termasuk saat dijalankan lewat penafsir. Uji Rust menambahkan
-regresi untuk literal `i64::MIN`, konversi `pecah`↔bulat (termasuk NaN/luar
-rentang), geser di luar lebar, `takaman`/`--boleh-takaman`, kelengkapan
-`cocok`, penerima metode `tetap`, batas kedalaman parser, batas rekursi
-penafsir, impor modul/duplikasi, dan pinjaman medan struk.
+regresi untuk literal `i64::MIN`, `MIN / -1` dan `MIN % -1`, konversi
+`pecah`↔bulat (termasuk NaN/luar rentang), geser di luar lebar,
+`takaman`/`--boleh-takaman`, kelengkapan `cocok`, penerima metode `tetap`,
+batas kedalaman parser, batas rekursi penafsir, impor modul/duplikasi (di
+kedua mesin), serta pinjaman dan pemindahan medan struk.
 
 ---
 
