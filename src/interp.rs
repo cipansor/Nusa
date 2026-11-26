@@ -270,13 +270,23 @@ impl<'a> Interp<'a> {
     // ---- pernyataan ------------------------------------------------------
 
     fn blok(&mut self, b: &Block) -> Hasil<Aliran> {
+        self.lingkup.push(HashMap::new());
+        let mut hasil = Ok(Aliran::Normal);
         for st in &b.stmts {
-            match self.stmt(st)? {
-                Aliran::Normal => {}
-                lain => return Ok(lain),
+            match self.stmt(st) {
+                Ok(Aliran::Normal) => {}
+                Ok(lain) => {
+                    hasil = Ok(lain);
+                    break;
+                }
+                Err(e) => {
+                    hasil = Err(e);
+                    break;
+                }
             }
         }
-        Ok(Aliran::Normal)
+        self.lingkup.pop();
+        hasil
     }
 
     fn stmt(&mut self, st: &Stmt) -> Hasil<Aliran> {
@@ -363,10 +373,10 @@ impl<'a> Interp<'a> {
                         break;
                     }
                     let s = Rc::new(RefCell::new(Nilai::Bulat(i)));
-                    if let Some(l) = self.lingkup.last_mut() {
-                        l.insert(nama.clone(), s);
-                    }
-                    match self.blok(badan)? {
+                    self.lingkup.push(HashMap::from([(nama.clone(), s)]));
+                    let aliran = self.blok(badan);
+                    self.lingkup.pop();
+                    match aliran? {
                         Aliran::Henti => break,
                         Aliran::Kembali(v) => return Ok(Aliran::Kembali(v)),
                         _ => {}
@@ -404,10 +414,10 @@ impl<'a> Interp<'a> {
                         .cloned()
                         .unwrap_or(Nilai::Kosong);
                     let s = Rc::new(RefCell::new(el));
-                    if let Some(l) = self.lingkup.last_mut() {
-                        l.insert(nama.clone(), s);
-                    }
-                    match self.blok(badan)? {
+                    self.lingkup.push(HashMap::from([(nama.clone(), s)]));
+                    let aliran = self.blok(badan);
+                    self.lingkup.pop();
+                    match aliran? {
                         Aliran::Henti => break,
                         Aliran::Kembali(v) => return Ok(Aliran::Kembali(v)),
                         _ => {}

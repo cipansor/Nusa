@@ -23,21 +23,33 @@ const KEDALAMAN_MAKS: u32 = 64;
 pub struct HasilUrai {
     pub prog: Prog,
     pub diag: Vec<Diagnostik>,
+    /// ID ekspresi berikutnya. Pemanggil yang menggabungkan beberapa berkas
+    /// harus memakai nilai ini agar ID tetap unik lintas modul.
+    pub id_berikut: u32,
 }
 
+#[allow(dead_code)]
 pub fn urai(tok: &[(Tok, Span)], berkas: &str) -> HasilUrai {
+    urai_mulai(tok, berkas, 1)
+}
+
+pub fn urai_mulai(tok: &[(Tok, Span)], berkas: &str, id_awal: u32) -> HasilUrai {
     let mut p = Pengurai {
         tok,
         pos: 0,
         berkas,
         diag: Vec::new(),
-        id: 1,
+        id: id_awal,
         larang_struk_lit: 0,
         larang_compound: 0,
         kedalaman: 0,
     };
     let prog = p.program();
-    HasilUrai { prog, diag: p.diag }
+    HasilUrai {
+        prog,
+        diag: p.diag,
+        id_berikut: p.id,
+    }
 }
 
 impl<'a> Pengurai<'a> {

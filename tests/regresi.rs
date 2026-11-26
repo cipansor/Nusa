@@ -458,3 +458,228 @@ fungsi utama() {
     let k = sama_di_dua_mesin("fitur", src);
     assert_eq!(k, "tujuan:1122\nsisi:8\narah:timur\n");
 }
+
+#[test]
+fn tulis_ke_elemen_larik_tetap_tidak_hilang() {
+    let k = sama_di_dua_mesin(
+        "larik-tulis",
+        r#"
+fungsi utama() -> bil {
+    ub a: [bil; 3] = [1, 2, 3];
+    a[1] = 9;
+    cetak(a[0], ",", a[1], ",", a[2]);
+    ub b: [pecah; 2] = [1.5, 2.5];
+    b[1] = 4.5;
+    cetak(b[0], ",", b[1]);
+    kembali 0
+}
+"#,
+    );
+    assert_eq!(k, "1,9,3\n1.5,4.5\n");
+}
+
+#[test]
+fn lingkup_blok_dan_variabel_iterasi_tidak_bocor() {
+    let k = sama_di_dua_mesin(
+        "lingkup",
+        r#"
+fungsi utama() -> bil {
+    ub i: bil = 7;
+    {
+        ub i: bil = 10;
+        cetak("dalam=", i);
+    }
+    cetak("luar=", i);
+    untuk i dalam 0..2 { cetak("iterasi=", i); }
+    cetak("setelah=", i);
+    kembali 0
+}
+"#,
+    );
+    assert_eq!(k, "dalam=10\nluar=7\niterasi=0\niterasi=1\nsetelah=7\n");
+}
+
+#[test]
+fn iterasi_daftar_memimjam_wadah_selama_badan() {
+    periksa(
+        "iterasi-ubah-metode",
+        r#"
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(1); d.tambah(2);
+    untuk x dalam d { d.tambah(x) }
+    kembali d.panjang()
+}
+"#,
+        "E0336",
+    );
+    periksa(
+        "iterasi-ubah-pinjam",
+        r#"
+fungsi isi(d: &ubah Daftar<bil>, x: bil) { tambah(d, x) }
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(1); d.tambah(2);
+    untuk x dalam d { isi(&ubah d, x) }
+    kembali d.panjang()
+}
+"#,
+        "E0333",
+    );
+}
+
+#[test]
+fn impor_modul_dengan_posisi_sama_tidak_tumpang_tindih() {
+    let d = dir("impor-id");
+    tulis(
+        &d,
+        "a.ns",
+        r#"
+fungsi jum_a() -> bil {
+    ub s: bil = 0;
+    untuk x dalam [1, 2, 3] { s = s + x }
+    kembali s
+}
+"#,
+    );
+    tulis(
+        &d,
+        "b.ns",
+        r#"
+fungsi jum_b() -> pecah {
+    ub s: pecah = 0.0;
+    untuk y dalam [1.5, 2.5, 3.5] { s = s + y }
+    kembali s
+}
+"#,
+    );
+    let f = tulis(
+        &d,
+        "utama.ns",
+        r#"
+impor "a"
+impor "b"
+fungsi utama() -> bil {
+    cetak("a=", jum_a(), " b=", jum_b());
+    kembali 0
+}
+"#,
+    );
+    let i = jalankan(&["jalan", f.to_str().unwrap()]);
+    assert!(i.status.success(), "{}", teks_galat(&i));
+    assert_eq!(teks_keluar(&i), "a=6 b=7.5\n");
+    if ada_llc() {
+        let biner = d.join("utama");
+        let b = jalankan(&["bangun", f.to_str().unwrap(), "-o", biner.to_str().unwrap()]);
+        assert!(b.status.success(), "{}", teks_galat(&b));
+        let run = Command::new(&biner).output().unwrap();
+        assert!(run.status.success(), "{}", teks_galat(&run));
+        assert_eq!(teks_keluar(&run), "a=6 b=7.5\n");
+    }
+}
+
+#[test]
+fn bebas_jaga_menolak_fungsi_yang_dilewati() {
+    let d = dir("bebas-jaga-lewat");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi pakai(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(1);
+    kembali pakai(d)
+}
+"#,
+    );
+    let biner = d.join("program");
+    let o = jalankan(&[
+        "bangun",
+        f.to_str().unwrap(),
+        "-o",
+        biner.to_str().unwrap(),
+        "--bebas-jaga",
+    ]);
+    assert!(!o.status.success());
+    assert!(
+        teks_galat(&o).contains("fungsi yang dilewati"),
+        "{}",
+        teks_galat(&o)
+    );
+}
+
+fn ada_z3() -> bool {
+    Command::new("z3").arg("--version").output().is_ok()
+}
+
+#[test]
+fn keluar_loop_tidak_vakum_di_verifikator() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("loop-vakum");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    untuk i dalam 0..3 { cetak(i) }
+    tegas salah
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("`tegas` harus selalu benar"), "{gabung}");
+}
+
+#[test]
+fn daftar_dibebaskan_pada_kembali_dan_lanjut() {
+    if Command::new("clang").arg("--version").output().is_err() {
+        return;
+    }
+    let d = dir("bebas-daftar");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi pakai(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub i: bil = 0;
+    selama i < 3 {
+        ub d: Daftar<bil> = daftar();
+        d.tambah(i);
+        cetak(pakai(d));
+        i = i + 1;
+        lanjut;
+    }
+    ub e: Daftar<bil> = daftar();
+    e.tambah(5);
+    kembali pakai(e)
+}
+"#,
+    );
+    let ir = jalankan(&["ir", f.to_str().unwrap()]);
+    assert!(ir.status.success(), "{}", teks_galat(&ir));
+    let ll = d.join("program.ll");
+    fs::write(&ll, &ir.stdout).unwrap();
+    let biner = d.join("program-asan");
+    let rt = Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/nusa_rt.c");
+    let c = Command::new("clang")
+        .args(["-fsanitize=address", "-g", "-o"])
+        .arg(&biner)
+        .arg(&ll)
+        .arg(&rt)
+        .output()
+        .unwrap();
+    assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
+    let run = Command::new(&biner)
+        .env("ASAN_OPTIONS", "detect_leaks=1")
+        .output()
+        .unwrap();
+    let galat = String::from_utf8_lossy(&run.stderr);
+    assert!(!galat.contains("LeakSanitizer"), "{galat}");
+}

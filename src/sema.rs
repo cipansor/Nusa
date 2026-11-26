@@ -33,8 +33,7 @@ pub struct Sema {
     pub diag: Vec<Diagnostik>,
     pub tipe: HashMap<u32, Ty>,
     pub panggil: HashMap<u32, Panggilan>,
-    pub lokal: HashMap<(u32, u32), Ty>,
-    pub elemen_untuk: HashMap<(u32, u32), Ty>,
+    pub elemen_untuk: HashMap<u32, Ty>,
     pub struk: HashMap<String, StrukInfo>,
     pub enumerasi: HashMap<String, EnumInfo>,
     pub sig: HashMap<String, Sig>,
@@ -107,7 +106,6 @@ pub fn periksa(prog: &Prog, berkas: &str, boleh_takaman: bool) -> Sema {
         diag: Vec::new(),
         tipe: HashMap::new(),
         panggil: HashMap::new(),
-        lokal: HashMap::new(),
         elemen_untuk: HashMap::new(),
         struk: HashMap::new(),
         enumerasi: HashMap::new(),
@@ -762,7 +760,6 @@ impl<'a> Pemeriksa<'a> {
                         kedalaman: k,
                     },
                 );
-                self.s.lokal.insert((span.baris, span.kol), t_final);
             }
             Stmt::Tugas {
                 target,
@@ -865,7 +862,6 @@ impl<'a> Pemeriksa<'a> {
                 dari,
                 sampai,
                 badan,
-                span,
                 ..
             } => {
                 let td = self.eks(dari, Some(&Ty::Bil));
@@ -890,7 +886,6 @@ impl<'a> Pemeriksa<'a> {
                         "E0311",
                     );
                 }
-                self.s.lokal.insert((span.baris, span.kol), Ty::Bil);
                 self.masuk();
                 self.ctx.dalam_selama += 1;
                 let k = self.ctx.kedalaman;
@@ -912,14 +907,15 @@ impl<'a> Pemeriksa<'a> {
                 self.keluar();
             }
             Stmt::UntukIsi {
-                nama,
-                wadah,
-                badan,
-                span,
+                nama, wadah, badan, ..
             } => {
                 self.ctx.jangan_pindah += 1;
                 let tw = self.eks(wadah, None);
                 self.ctx.jangan_pindah -= 1;
+                // Pinjam wadah selama badan loop. Tanpa ini, `tambah` di badan
+                // bisa merealokasi buffer sementara kode native masih memakai
+                // pointer lama (use-after-free).
+                let wadah_tempat = self.tempat(wadah);
                 let elemen = match &tw {
                     Ty::Array(t, _) => (**t).clone(),
                     Ty::Irisan(t) => (**t).clone(),
@@ -940,12 +936,20 @@ impl<'a> Pemeriksa<'a> {
                         "E0313",
                     );
                 }
-                self.s
-                    .elemen_untuk
-                    .insert((span.baris, span.kol), elemen.clone());
-                self.s.lokal.insert((span.baris, span.kol), elemen.clone());
+                self.s.elemen_untuk.insert(wadah.id, elemen.clone());
                 self.masuk();
                 self.ctx.dalam_selama += 1;
+                if let Some(t) = wadah_tempat {
+                    self.ctx
+                        .pinjaman
+                        .entry(t.akar.clone())
+                        .or_default()
+                        .push(Pinjaman {
+                            ubah: false,
+                            oleh: Some(format!("iterasi `{}`", nama)),
+                            kedalaman: self.ctx.kedalaman,
+                        });
+                }
                 let k = self.ctx.kedalaman;
                 self.ctx.lingkup.last_mut().unwrap().insert(
                     nama.clone(),
@@ -1783,6 +1787,13 @@ impl<'a> Pemeriksa<'a> {
                 args[0].span,
                 format!("metode `{}` memerlukan penerima `ubah`", nama),
                 "E0383",
+            );
+        }
+        if let Some(p) = self.pinjaman_aktif(&tempat.akar, false) {
+            self.galat(
+                args[0].span,
+                format!("tidak dapat mengubah `{}` selama ada {}", tempat.akar, p),
+                "E0336",
             );
         }
         let elemen = match &tempat.ty {

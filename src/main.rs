@@ -9,6 +9,7 @@ mod llvm;
 mod parse;
 mod sema;
 mod smt;
+mod tmp;
 
 use std::io::{IsTerminal, Write};
 use std::process::{Command, Stdio};
@@ -147,7 +148,8 @@ fn muat(o: &Opsi) -> Result<Dimuat, i32> {
     let berkas = &o.berkas;
     let mut prog = ast::Prog::default();
     let mut dikunjungi = std::collections::HashSet::new();
-    muat_berkas(berkas, &mut prog, &mut dikunjungi)?;
+    let mut id_berikut = 1;
+    muat_berkas(berkas, &mut prog, &mut dikunjungi, &mut id_berikut)?;
     let sumber = std::fs::read_to_string(berkas).unwrap_or_default();
     let s = sema::periksa(&prog, berkas, o.boleh_takaman);
     if diag::ada_galat(&s.diag) {
@@ -164,6 +166,7 @@ fn muat_berkas(
     berkas: &str,
     prog: &mut ast::Prog,
     dikunjungi: &mut std::collections::HashSet<std::path::PathBuf>,
+    id_berikut: &mut u32,
 ) -> Result<(), i32> {
     let kunci = std::fs::canonicalize(berkas).unwrap_or_else(|_| std::path::PathBuf::from(berkas));
     if !dikunjungi.insert(kunci) {
@@ -178,7 +181,8 @@ fn muat_berkas(
     };
     let h = lex::lentik(&sumber, berkas);
     let mut d = h.diag;
-    let u = parse::urai(&h.token, berkas);
+    let u = parse::urai_mulai(&h.token, berkas, *id_berikut);
+    *id_berikut = u.id_berikut;
     d.extend(u.diag);
     if diag::ada_galat(&d) {
         cetak_diag(&d, &sumber);
@@ -214,7 +218,7 @@ fn muat_berkas(
             cetak_diag(&[d], &sumber);
             return Err(1);
         }
-        muat_berkas(&jalur.to_string_lossy(), prog, dikunjungi)?;
+        muat_berkas(&jalur.to_string_lossy(), prog, dikunjungi, id_berikut)?;
     }
     prog.fungsi.extend(u.prog.fungsi);
     prog.struk.extend(u.prog.struk);
@@ -267,7 +271,7 @@ fn buktikan(o: &Opsi) -> i32 {
     };
     let lap = smt::periksa(&d.prog, &d.sema, &o.berkas);
     lap.cetak();
-    if lap.gagal > 0 || lap.tidak_diketahui > 0 {
+    if lap.gagal > 0 || lap.tidak_diketahui > 0 || lap.dilewati > 0 {
         1
     } else {
         0
@@ -275,8 +279,14 @@ fn buktikan(o: &Opsi) -> i32 {
 }
 
 fn jalankan(o: &Opsi) -> i32 {
-    let keluar =
-        std::env::temp_dir().join(format!("nusa-jalan-{}-{}", std::process::id(), waktu()));
+    let tmp = match tmp::TempDir::baru("nusa-jalan") {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nusa: gagal membuat direktori sementara: {}", e);
+            return 2;
+        }
+    };
+    let keluar = tmp.path().join("program");
     let o2 = Opsi {
         berkas: o.berkas.clone(),
         keluaran: Some(keluar.to_string_lossy().to_string()),
@@ -290,7 +300,6 @@ fn jalankan(o: &Opsi) -> i32 {
         return kode;
     }
     let status = Command::new(&keluar).status();
-    let _ = std::fs::remove_file(&keluar);
     match status {
         Ok(s) => s.code().unwrap_or(1),
         Err(e) => {
@@ -298,13 +307,6 @@ fn jalankan(o: &Opsi) -> i32 {
             2
         }
     }
-}
-
-fn waktu() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
 }
 
 fn jalur_alat(kandidat: &[&str]) -> Option<String> {
@@ -323,40 +325,13 @@ fn jalur_alat(kandidat: &[&str]) -> Option<String> {
     None
 }
 
-fn dir_cache() -> std::path::PathBuf {
-    let dasar = std::env::var("XDG_CACHE_HOME")
-        .ok()
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var("HOME")
-                .ok()
-                .map(|h| std::path::PathBuf::from(h).join(".cache"))
-        })
-        .unwrap_or_else(std::env::temp_dir);
-    let d = dasi(dasar);
-    let _ = std::fs::create_dir_all(&d);
-    d
-}
-
-fn dasi(p: std::path::PathBuf) -> std::path::PathBuf {
-    p.join("nusa")
-}
-
-fn objek_runtime() -> Result<std::path::PathBuf, String> {
-    let dir = dir_cache();
-    let obj = dir.join("nusa_rt.o");
-    let mut sidik: u64 = 0xcbf29ce484222325;
-    for b in RT_C.as_bytes() {
-        sidik ^= *b as u64;
-        sidik = sidik.wrapping_mul(0x100000001b3);
-    }
-    let sidik = format!("{:016x}", sidik);
-    let penanda = dir.join(format!("rt-{}.ok", sidik));
-    if obj.exists() && penanda.exists() {
-        return Ok(obj);
-    }
+/// Runtime selalu dirakit di direktori build privat. Cache bersama di
+/// `/tmp` tidak dipakai: objek dan penanda di sana dapat diganti pengguna
+/// lokal lain sebelum ditautkan ke biner.
+fn objek_runtime(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
     let c = dir.join("nusa_rt.c");
-    std::fs::write(&c, RT_C).map_err(|e| format!("tulis runtime: {}", e))?;
+    let obj = dir.join("nusa_rt.o");
+    tmp::tulis_privat(&c, RT_C.as_bytes()).map_err(|e| format!("tulis runtime: {}", e))?;
     let cc = jalur_alat(&["cc", "gcc", "clang"]).ok_or("tidak ada `cc`/`gcc` untuk runtime")?;
     let hasil = Command::new(cc)
         .args(["-O2", "-c"])
@@ -368,7 +343,6 @@ fn objek_runtime() -> Result<std::path::PathBuf, String> {
     if !hasil.success() {
         return Err("gagal merakit runtime C".into());
     }
-    let _ = std::fs::write(&penanda, "ok");
     Ok(obj)
 }
 
@@ -395,8 +369,10 @@ fn bangun_diam(o: &Opsi) -> i32 {
     if o.bebas_jaga {
         let lap = smt::periksa(&d.prog, &d.sema, &o.berkas);
         lap.cetak();
-        if lap.gagal > 0 || lap.tidak_diketahui > 0 {
-            eprintln!("nusa: `--bebas-jaga` ditolak: masih ada tugas yang belum terbukti");
+        if lap.gagal > 0 || lap.tidak_diketahui > 0 || lap.dilewati > 0 {
+            eprintln!(
+                "nusa: `--bebas-jaga` ditolak: masih ada tugas yang belum terbukti atau fungsi yang dilewati"
+            );
             return 1;
         }
     }
@@ -413,10 +389,15 @@ fn bangun_diam(o: &Opsi) -> i32 {
         .keluaran
         .clone()
         .unwrap_or_else(|| o.berkas.trim_end_matches(".ns").to_string());
-    let tmp = std::env::temp_dir().join(format!("nusa-bangun-{}-{}", std::process::id(), waktu()));
-    let _ = std::fs::create_dir_all(&tmp);
-    let ir_path = tmp.join("program.ll");
-    if std::fs::write(&ir_path, &ir).is_err() {
+    let tmp = match tmp::TempDir::baru("nusa-bangun") {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nusa: gagal membuat direktori build sementara: {}", e);
+            return 2;
+        }
+    };
+    let ir_path = tmp.path().join("program.ll");
+    if tmp::tulis_privat(&ir_path, ir.as_bytes()).is_err() {
         eprintln!("nusa: gagal menulis IR sementara");
         return 2;
     }
@@ -430,7 +411,7 @@ fn bangun_diam(o: &Opsi) -> i32 {
             return 2;
         }
     };
-    let obj = tmp.join("program.o");
+    let obj = tmp.path().join("program.o");
     let mut cmd = Command::new(&alat);
     if alat.starts_with("llc") {
         cmd.args([
@@ -455,7 +436,7 @@ fn bangun_diam(o: &Opsi) -> i32 {
             return 2;
         }
     }
-    let rt = match objek_runtime() {
+    let rt = match objek_runtime(tmp.path()) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("nusa: {}", e);
@@ -476,7 +457,6 @@ fn bangun_diam(o: &Opsi) -> i32 {
             return 2;
         }
     }
-    let _ = std::fs::remove_dir_all(&tmp);
     let ukuran = std::fs::metadata(&keluar).map(|m| m.len()).unwrap_or(0);
     let ms = t0.elapsed().as_millis();
     let _ = std::io::stdout().flush();

@@ -47,7 +47,7 @@ struct FnCtx {
     badan: String,
     scope: Vec<HashMap<String, Lokal>>,
     buntu: bool,
-    loop_stack: Vec<(String, String)>,
+    loop_stack: Vec<(String, String, usize)>,
     jangan_pindah: u32,
     hasil: Ty,
     nama: String,
@@ -109,6 +109,7 @@ impl<'a> Codegen<'a> {
     fn perlu_bebas(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Daftar(_) => true,
+            Ty::Array(d, _) => self.perlu_bebas(d),
             Ty::Nama(n) => self
                 .sema
                 .struk
@@ -126,6 +127,14 @@ impl<'a> Codegen<'a> {
                 let p = self.tmp();
                 self.emit(&format!("{} = extractvalue {} {}, 0", p, t, reg));
                 self.emit(&format!("call void @nusa_daftar_bebas(i8* {})", p));
+            }
+            Ty::Array(d, n) => {
+                let t = self.llty(ty);
+                for i in 0..*n {
+                    let p = self.tmp();
+                    self.emit(&format!("{} = extractvalue {} {}, {}", p, t, reg, i));
+                    self.bebas_nilai(&p, d);
+                }
             }
             Ty::Nama(n) => {
                 let medan = match self.sema.struk.get(n) {
@@ -145,16 +154,37 @@ impl<'a> Codegen<'a> {
         }
     }
 
+    fn bebas_lokal(&mut self, l: &Lokal) {
+        if l.daftar {
+            let v = self.muat(&l.ptr, &l.ty);
+            self.bebas_nilai(&v, &l.ty.clone());
+        }
+    }
+
+    /// Bebaskan lokal pada cakupan `mulai..` tanpa mem-pop-nya. Dipakai pada
+    /// `kembali`/`henti`/`lanjut`, yang meninggalkan cakupan lewat cabang
+    /// kontrol dan tidak melewati `keluar()`.
+    fn bebas_lingkup_dari(&mut self, mulai: usize) {
+        let mut lok: Vec<Lokal> = self
+            .ctx
+            .scope
+            .iter()
+            .skip(mulai)
+            .flat_map(|s| s.values().cloned())
+            .collect();
+        lok.sort_by(|a, b| a.ptr.cmp(&b.ptr));
+        for l in &lok {
+            self.bebas_lokal(l);
+        }
+    }
+
     fn keluar(&mut self) {
         let skop = self.ctx.scope.pop().unwrap_or_default();
         let mut nama: Vec<&String> = skop.keys().collect();
         nama.sort();
         for n in nama {
             if let Some(l) = skop.get(n) {
-                if l.daftar {
-                    let v = self.muat(&l.ptr, &l.ty);
-                    self.bebas_nilai(&v, &l.ty.clone());
-                }
+                self.bebas_lokal(l);
             }
         }
     }
@@ -341,6 +371,10 @@ impl<'a> Codegen<'a> {
                 let mut v = self.ekspresi(nilai);
                 v = self.ubah_tipe(v, &t_target);
                 let p = self.tempat_ptr(target);
+                if self.perlu_bebas(&t_target) {
+                    let lama = self.muat(&p, &t_target);
+                    self.bebas_nilai(&lama, &t_target);
+                }
                 self.simpan(&p, &t_target, &v.reg);
             }
             Stmt::Jika {
@@ -385,7 +419,10 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("br i1 {}, label %{}, label %{}", k.reg, lb, le));
                 self.ctx.badan.push_str(&format!("{}:\n", lb));
                 self.ctx.buntu = false;
-                self.ctx.loop_stack.push((lc.clone(), le.clone()));
+                let kedalaman = self.ctx.scope.len();
+                self.ctx
+                    .loop_stack
+                    .push((lc.clone(), le.clone(), kedalaman));
                 self.blok(badan);
                 self.ctx.loop_stack.pop();
                 if !self.ctx.buntu {
@@ -420,6 +457,7 @@ impl<'a> Codegen<'a> {
                 self.emit(&format!("br i1 {}, label %{}, label %{}", c, lb, le));
                 self.ctx.badan.push_str(&format!("{}:\n", lb));
                 self.ctx.buntu = false;
+                let kedalaman = self.ctx.scope.len();
                 self.masuk();
                 self.ikat(
                     nama,
@@ -429,7 +467,9 @@ impl<'a> Codegen<'a> {
                         daftar: false,
                     },
                 );
-                self.ctx.loop_stack.push((ls.clone(), le.clone()));
+                self.ctx
+                    .loop_stack
+                    .push((ls.clone(), le.clone(), kedalaman));
                 for s in &badan.stmts {
                     self.stmt(s);
                 }
@@ -449,15 +489,12 @@ impl<'a> Codegen<'a> {
                 self.ctx.buntu = false;
             }
             Stmt::UntukIsi {
-                nama,
-                wadah,
-                badan,
-                span,
+                nama, wadah, badan, ..
             } => {
                 let elemen = self
                     .sema
                     .elemen_untuk
-                    .get(&(span.baris, span.kol))
+                    .get(&wadah.id)
                     .cloned()
                     .unwrap_or(Ty::Bil);
                 let (ptr, len) = self.ptr_dan_panjang(wadah);
@@ -486,6 +523,7 @@ impl<'a> Codegen<'a> {
                 let el = self.muat(&ep, &elemen);
                 let lp = self.alloca(&et);
                 self.simpan(&lp, &elemen, &el);
+                let kedalaman = self.ctx.scope.len();
                 self.masuk();
                 self.ikat(
                     nama,
@@ -495,7 +533,9 @@ impl<'a> Codegen<'a> {
                         daftar: false,
                     },
                 );
-                self.ctx.loop_stack.push((ls.clone(), le.clone()));
+                self.ctx
+                    .loop_stack
+                    .push((ls.clone(), le.clone(), kedalaman));
                 for s in &badan.stmts {
                     self.stmt(s);
                 }
@@ -519,9 +559,13 @@ impl<'a> Codegen<'a> {
                     Some(e) => {
                         let v = self.ekspresi_pindah(e);
                         let t = self.llty(&v.ty);
+                        self.bebas_lingkup_dari(0);
                         self.emit(&format!("ret {} {}", t, v.reg));
                     }
-                    None => self.emit("ret void"),
+                    None => {
+                        self.bebas_lingkup_dari(0);
+                        self.emit("ret void");
+                    }
                 }
                 self.ctx.buntu = true;
             }
@@ -547,13 +591,15 @@ impl<'a> Codegen<'a> {
                 self.ekspresi(e);
             }
             Stmt::Henti(_) => {
-                if let Some((_, le)) = self.ctx.loop_stack.last().cloned() {
+                if let Some((_, le, kedalaman)) = self.ctx.loop_stack.last().cloned() {
+                    self.bebas_lingkup_dari(kedalaman);
                     self.emit(&format!("br label %{}", le));
                     self.ctx.buntu = true;
                 }
             }
             Stmt::Lanjut(_) => {
-                if let Some((lc, _)) = self.ctx.loop_stack.last().cloned() {
+                if let Some((lc, _, kedalaman)) = self.ctx.loop_stack.last().cloned() {
+                    self.bebas_lingkup_dari(kedalaman);
                     self.emit(&format!("br label %{}", lc));
                     self.ctx.buntu = true;
                 }
@@ -780,6 +826,23 @@ impl<'a> Codegen<'a> {
                 p
             }
             ExprKind::Indeks { dasar, indeks } => {
+                let td = self.sema.tipe.get(&dasar.id).cloned().unwrap_or(Ty::Bil);
+                if let Ty::Array(_, n) = &td {
+                    // Larik tetap harus ditulis ke lokasi aslinya. `ptr_wadah`
+                    // menyalin nilai larik ke alloca sementara, sehingga
+                    // penulisan ke salinan itu hilang.
+                    let base_ptr = self.tempat_ptr(dasar);
+                    let ti = self.ekspresi(indeks);
+                    let idx64 = self.ke_i64(&ti);
+                    self.jaga_batas(&idx64, &n.to_string(), e.span.baris);
+                    let at = self.llty(&td);
+                    let p = self.tmp();
+                    self.emit(&format!(
+                        "{} = getelementptr inbounds {}, {}* {}, i64 0, i64 {}",
+                        p, at, at, base_ptr, idx64
+                    ));
+                    return p;
+                }
                 let (base_ptr, len, elemen) = self.ptr_wadah(dasar);
                 let ti = self.ekspresi(indeks);
                 let idx64 = self.ke_i64(&ti);
@@ -1827,13 +1890,14 @@ impl<'a> Codegen<'a> {
             self.stmt(s);
         }
         if !self.ctx.buntu {
+            self.bebas_lingkup_dari(0);
             if f.hasil == Ty::Kosong {
                 self.emit("ret void");
             } else {
                 self.emit("unreachable");
             }
         }
-        self.keluar();
+        self.ctx.scope.clear();
         self.tutup_blok();
         let ret = self.llty(&f.hasil);
         let teks = format!(

@@ -432,25 +432,7 @@ impl<'a> Vc<'a> {
                 let diubah = ditugaskan(badan);
                 let mut h = j.clone();
                 for nama in &diubah {
-                    if let Some(lama) = h.env.get(nama).cloned() {
-                        let baru = self.segar(nama, &lama.ty);
-                        let panjang = if matches!(lama.ty, Ty::Array(_, _) | Ty::Irisan(_)) {
-                            let l = self.segar(&format!("{}__len", nama), &Ty::Bil);
-                            let lama_panjang = self.panj(lama.clone());
-                            h.pc.push(format!("(= {} {})", l, lama_panjang));
-                            Some(l)
-                        } else {
-                            None
-                        };
-                        h.env.insert(
-                            nama.clone(),
-                            Nl {
-                                term: baru,
-                                ty: lama.ty.clone(),
-                                panjang,
-                            },
-                        );
-                    }
+                    self.havok(&mut h, nama);
                 }
                 let lama_spek = self.spek_mulai();
                 let inv_h: Vec<String> =
@@ -478,10 +460,8 @@ impl<'a> Vc<'a> {
                     );
                 }
                 let mut keluar_ = h;
-                keluar_.pc.push(format!("(not {})", k.term));
-                for i in &inv_h {
-                    keluar_.pc.push(i.clone());
-                }
+                let k_keluar = self.eks(kond, &mut keluar_);
+                keluar_.pc.push(format!("(not {})", k_keluar.term));
                 *j = keluar_;
             }
             Stmt::UntukRentang {
@@ -533,11 +513,32 @@ impl<'a> Vc<'a> {
                         &bj.pc,
                     );
                 }
-                let mut keluar_ = h;
-                keluar_.pc.push(format!("(not {})", kond));
-                for i in &inv {
-                    keluar_.pc.push(i.clone());
+                // Keadaan keluar bukan keadaan badan iterasi terakhir:
+                // indeks akhir bebas yang menyangkal kondisi loop, dan lokal
+                // yang diubah badan di-havok. Jangan sertakan `batas` badan,
+                // karena `i < akhir` bersama `i >= akhir` membuat asumsi palsu.
+                let mut keluar_ = j.clone();
+                keluar_.pc.push(format!("(= {} {})", akhir, b.term));
+                for nama_diubah in ditugaskan(badan) {
+                    if nama_diubah != *nama {
+                        self.havok(&mut keluar_, &nama_diubah);
+                    }
                 }
+                let i_keluar = self.segar(nama, &Ty::Bil);
+                keluar_.env.insert(
+                    nama.clone(),
+                    Nl {
+                        term: i_keluar.clone(),
+                        ty: Ty::Bil,
+                        panjang: None,
+                    },
+                );
+                let kond_keluar = if *inklusif {
+                    format!("(<= {} {})", i_keluar, akhir)
+                } else {
+                    format!("(< {} {})", i_keluar, akhir)
+                };
+                keluar_.pc.push(format!("(not {})", kond_keluar));
                 *j = keluar_;
             }
             Stmt::UntukIsi {
@@ -558,8 +559,15 @@ impl<'a> Vc<'a> {
                 let mut bj = h.clone();
                 bj.pc.push(format!("(< {} {})", i_sym, len));
                 self.blok(badan, &mut bj);
-                let mut keluar_ = h;
-                keluar_.pc.push(format!("(>= {} {})", i_sym, len));
+                // Tidak ada kondisi indeks internal setelah loop. Badan
+                // di-havok; wadah tidak boleh berubah karena sema meminjamnya
+                // selama iterasi.
+                let mut keluar_ = j.clone();
+                for nama_diubah in ditugaskan(badan) {
+                    if nama_diubah != *nama {
+                        self.havok(&mut keluar_, &nama_diubah);
+                    }
+                }
                 *j = keluar_;
             }
             Stmt::Kembali(nilai, _) => {
@@ -616,6 +624,31 @@ impl<'a> Vc<'a> {
             }
             Stmt::Blok(b) | Stmt::Takaman(b) => self.blok(b, j),
         }
+    }
+
+    /// Ganti nilai lokal dengan simbol segar. Ini overapproximation yang
+    /// sound: nilai setelah loop boleh apa saja, bukan salinan keadaan badan
+    /// iterasi terakhir.
+    fn havok(&mut self, j: &mut Jalur, nama: &str) {
+        let Some(lama) = j.env.get(nama).cloned() else {
+            return;
+        };
+        let baru = self.segar(nama, &lama.ty);
+        let panjang = if matches!(lama.ty, Ty::Array(_, _) | Ty::Irisan(_)) {
+            let l = self.segar(&format!("{}__len", nama), &Ty::Bil);
+            j.pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
+            Some(l)
+        } else {
+            None
+        };
+        j.env.insert(
+            nama.to_string(),
+            Nl {
+                term: baru,
+                ty: lama.ty,
+                panjang,
+            },
+        );
     }
 
     fn gabung(&mut self, k: &str, a: Jalur, b: Jalur) -> Jalur {
@@ -1176,23 +1209,30 @@ fn ada_lompat(b: &Block) -> bool {
 }
 
 fn jalankan_z3(skrip: &str) -> (Hasil, Option<String>) {
-    let tmp =
-        std::env::temp_dir().join(format!("nusa-vc-{}-{}.smt2", std::process::id(), counter()));
     if std::env::var("NUSA_SMT").is_ok() {
-        let dbg = std::env::temp_dir().join(format!("nusa-dbg-{}.smt2", counter()));
-        let _ = std::fs::write(&dbg, skrip);
+        eprintln!("{}", skrip);
     }
-    if std::fs::write(&tmp, skrip).is_err() {
-        return (Hasil::TidakDiketahui, None);
-    }
-    let anak = Command::new("z3")
-        .arg("-smt2")
-        .arg(&tmp)
-        .stdin(Stdio::null())
+    // Query dikirim lewat pipa. Tidak ada berkas sementara yang bisa diganti
+    // pengguna lokal lain sebelum dibaca Z3.
+    let mut anak = match Command::new("z3")
+        .args(["-smt2", "-in"])
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output();
-    let _ = std::fs::remove_file(&tmp);
+        .spawn()
+    {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "nusa: tidak dapat menjalankan z3: {}", e);
+            return (Hasil::TidakDiketahui, None);
+        }
+    };
+    if let Some(mut masuk) = anak.stdin.take() {
+        if let Err(e) = masuk.write_all(skrip.as_bytes()) {
+            let _ = writeln!(std::io::stderr(), "nusa: gagal menulis query Z3: {}", e);
+        }
+    }
+    let anak = anak.wait_with_output();
     match anak {
         Ok(keluaran) => {
             let teks = String::from_utf8_lossy(&keluaran.stdout).to_string();
@@ -1218,14 +1258,8 @@ fn jalankan_z3(skrip: &str) -> (Hasil, Option<String>) {
             }
         }
         Err(e) => {
-            let _ = writeln!(std::io::stderr(), "nusa: tidak dapat menjalankan z3: {}", e);
+            let _ = writeln!(std::io::stderr(), "nusa: z3 gagal: {}", e);
             (Hasil::TidakDiketahui, None)
         }
     }
-}
-
-fn counter() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    N.fetch_add(1, Ordering::Relaxed)
 }
