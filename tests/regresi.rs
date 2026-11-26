@@ -1019,6 +1019,63 @@ fungsi utama() -> bil { kembali uji(benar) }
 }
 
 #[test]
+fn bukti_gabung_panjang_tak_diketahui_tidak_jadi_nol() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-gabung-tak-diketahui");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi terus(d: [bil]) -> [bil] { kembali d }
+fungsi uji(c: log) -> bil {
+    ub a: [bil] = [10, 20];
+    jika c {
+        a = terus(a);
+    } selain {
+        tegas benar
+    }
+    tegas panjang(a) == 0
+    kembali 0
+}
+fungsi utama() -> bil { kembali uji(benar) }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
+fn bukti_gabung_panjang_diketahui_tetap_dua() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-gabung-diketahui");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi terus(d: [bil]) -> [bil] { kembali d }
+fungsi utama() -> bil {
+    ub a: [bil] = [10, 20];
+    jika benar {
+        tegas benar
+    } selain {
+        a = terus(a);
+    }
+    tegas panjang(a) == 2
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
 fn bukti_parameter_larik_tetap_memakai_panjang_tetap() {
     if !ada_z3() {
         return;

@@ -731,6 +731,7 @@ impl<'a> Vc<'a> {
             },
             (true, true) => {
                 let mut env = Env::new();
+                let mut panjang_pc = Vec::new();
                 for (nama, na) in &a.env {
                     if let Some(nb) = b.env.get(nama) {
                         let term = if na.term == nb.term {
@@ -741,7 +742,35 @@ impl<'a> Vc<'a> {
                         let panjang = match (&na.panjang, &nb.panjang) {
                             (Some(pa), Some(pb)) if pa == pb => Some(pa.clone()),
                             (Some(pa), Some(pb)) => Some(format!("(ite {} {} {})", k, pa, pb)),
-                            _ => None,
+                            (Some(pa), None) => match &nb.ty {
+                                Ty::Irisan(_) => {
+                                    let l = self.segar(&format!("{}__gabung", nama), &Ty::Bil);
+                                    panjang_pc.push(rentang_panjang(&l));
+                                    Some(format!("(ite {} {} {})", k, pa, l))
+                                }
+                                Ty::Array(_, n) => Some(n.to_string()),
+                                _ => None,
+                            },
+                            (None, Some(pb)) => match &na.ty {
+                                Ty::Irisan(_) => {
+                                    let l = self.segar(&format!("{}__gabung", nama), &Ty::Bil);
+                                    panjang_pc.push(rentang_panjang(&l));
+                                    Some(format!("(ite {} {} {})", k, l, pb))
+                                }
+                                Ty::Array(_, n) => Some(n.to_string()),
+                                _ => None,
+                            },
+                            (None, None) => match (&na.ty, &nb.ty) {
+                                (Ty::Irisan(_), Ty::Irisan(_)) => {
+                                    let la = self.segar(&format!("{}__gabung", nama), &Ty::Bil);
+                                    let lb = self.segar(&format!("{}__gabung", nama), &Ty::Bil);
+                                    panjang_pc.push(rentang_panjang(&la));
+                                    panjang_pc.push(rentang_panjang(&lb));
+                                    Some(format!("(ite {} {} {})", k, la, lb))
+                                }
+                                (Ty::Array(_, n), _) | (_, Ty::Array(_, n)) => Some(n.to_string()),
+                                _ => None,
+                            },
                         };
                         env.insert(
                             nama.clone(),
@@ -757,6 +786,7 @@ impl<'a> Vc<'a> {
                 }
                 let mut pc = a.pc.clone();
                 pc.retain(|x| b.pc.contains(x));
+                pc.extend(panjang_pc);
                 Jalur {
                     env,
                     pc,
@@ -1100,6 +1130,15 @@ impl<'a> Vc<'a> {
                 .push(format!("(declare-fun {}{} {})", fnama, argsrt, shasil));
         }
         let res = self.segar(&format!("{}_hasil", nama), &hasil);
+        let panjang_hasil = match &hasil {
+            Ty::Array(_, n) => Some(n.to_string()),
+            Ty::Irisan(_) => {
+                let l = format!("{}_len", res);
+                j.pc.push(rentang_panjang(&l));
+                Some(l)
+            }
+            _ => None,
+        };
         if bisa {
             let mut jj = j.clone();
             if let Some(f) = self.prog.fungsi.iter().find(|f| f.nama == *nama) {
@@ -1118,7 +1157,7 @@ impl<'a> Vc<'a> {
                     Nl {
                         term: res.clone(),
                         ty: hasil.clone(),
-                        panjang: None,
+                        panjang: panjang_hasil.clone(),
                     },
                 );
                 let perlu = f.perlu.clone();
@@ -1144,7 +1183,7 @@ impl<'a> Vc<'a> {
         Nl {
             term: res,
             ty: hasil,
-            panjang: None,
+            panjang: panjang_hasil,
         }
     }
 }
@@ -1179,6 +1218,10 @@ fn st_span(st: &Stmt) -> Span {
         Stmt::Ekspresi(e) => e.span,
         Stmt::Blok(b) | Stmt::Takaman(b) => b.span,
     }
+}
+
+fn rentang_panjang(l: &str) -> String {
+    format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l)
 }
 
 fn num(v: i128) -> String {
