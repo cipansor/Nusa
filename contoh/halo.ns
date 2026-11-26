@@ -1,0 +1,6 @@
+// Halo dunia dalam bahasa Nusa.
+fungsi utama() {
+  cetak("Halo, Nusantara!");
+  cetak("1 + 2 * 3 =", 1 + 2 * 3);
+  cetak("logika:", benar, salah);
+}

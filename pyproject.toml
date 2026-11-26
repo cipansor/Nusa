@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nusa-lang"
+version = "0.1.0"
+description = "Nusa: bahasa pemrograman Indonesia dengan backend LLVM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "llvmlite>=0.40",
+    "z3-solver>=4.12",
+]
+
+[project.scripts]
+nusa = "nusa.cli:main"
+
+[tool.setuptools]
+packages = ["nusa"]

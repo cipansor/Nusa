@@ -1,0 +1,50 @@
+// Tur fitur: bentuk, pilihan, cocok, putaran, konversi, deret.
+bentuk Titik { x: bulat, y: bulat }
+
+pilihan Arah { Utara, Selatan, Timur, Barat }
+
+jenis Sisi = cacah32;
+
+fungsi jumlah(d: deret<bulat, 5>) -> bulat {
+  ub total: bulat = 0;
+  untuk i dalam 0..5 {
+    total += d[i];
+  }
+  kembali total;
+}
+
+fungsi geser(t: Titik, dx: bulat, dy: bulat) -> Titik {
+  kembali Titik { x: t.x + dx, y: t.y + dy };
+}
+
+fungsi nama_arah(a: Arah) -> teks {
+  cocok a {
+    kasus Utara   { kembali "utara"; }
+    kasus Selatan { kembali "selatan"; }
+    kasus Timur   { kembali "timur"; }
+    kasus Barat   { kembali "barat"; }
+  }
+}
+
+fungsi utama() {
+  tp asal: Titik = Titik { x: 1, y: 2 };
+  tp tujuan: Titik = geser(asal, 10, 20);
+  cetak("tujuan:", tujuan.x, tujuan.y);
+
+  tp d: deret<bulat, 5> = [10, 20, 30, 40, 50];
+  cetak("jumlah:", jumlah(d), "panjang:", panjang(d));
+
+  ub n: bulat = 0;
+  selama n < 3 {
+    cetak("putaran", n);
+    n += 1;
+  }
+
+  cetak("arah:", nama_arah(Arah.Timur));
+
+  ub kecil: Sisi = 7;
+  kecil = kecil + 1;
+  cetak("sisi:", kecil);
+
+  cetak("konversi:", 3.99 sebagai bulat, 7 sebagai pecahan / 2.0);
+}

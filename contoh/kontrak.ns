@@ -1,0 +1,41 @@
+// Kontrak yang diverifikasi otomatis oleh Z3:
+//   ./bin/nusa bukti contoh/kontrak.ns
+murni fungsi tambah_aman(a: bulat, b: bulat) -> bulat
+  syarat 0 <= a
+  syarat 0 <= b
+  syarat a <= 1000
+  syarat b <= 1000
+  jamin hasil == a + b
+  jamin hasil >= a
+{
+  kembali a + b;
+}
+
+murni fungsi mutlak(x: bulat) -> bulat
+  syarat x > -1000000000
+  syarat x < 1000000000
+  jamin hasil >= 0
+  jamin hasil >= x
+{
+  jika x < 0 { kembali 0 - x; }
+  kembali x;
+}
+
+murni fungsi hitung_naik(n: bulat) -> bulat
+  syarat n >= 0
+  syarat n <= 1000000
+  jamin hasil == n
+{
+  ub x: bulat = 0;
+  selama x < n
+    invarian 0 <= x
+    invarian x <= n
+  {
+    x += 1;
+  }
+  kembali x;
+}
+
+fungsi utama() {
+  cetak(tambah_aman(20, 22), mutlak(-7), hitung_naik(5));
+}

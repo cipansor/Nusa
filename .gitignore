@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.o
+*.ll
+*.s
+build/
+dist/
+*.egg-info/
+.bangun/
+.openhands/

@@ -1,0 +1,46 @@
+// Contoh sistem kritis: pengatur jarak kendaraan.
+// Inti pengambilan keputusan diverifikasi formal dengan Z3:
+//   ./bin/nusa bukti contoh/kritis.ns
+bentuk Kendaraan { kecepatan: bulat, jarak: bulat }
+
+pilihan Perintah { Gas, Rem, Netral }
+
+murni fungsi jarak_aman(kecepatan: bulat) -> bulat
+  syarat 0 <= kecepatan
+  syarat kecepatan <= 300
+  jamin hasil >= 10
+  jamin hasil >= kecepatan
+  jamin hasil <= 700
+{
+  kembali kecepatan * 2 + 10;
+}
+
+murni fungsi selisih_aman(kecepatan: bulat, jarak: bulat) -> bulat
+  syarat 0 <= kecepatan
+  syarat kecepatan <= 300
+  syarat 0 <= jarak
+  syarat jarak <= 100000
+  jamin hasil <= jarak
+  jamin hasil >= 0
+{
+  tp butuh: bulat = jarak_aman(kecepatan);
+  jika jarak <= butuh { kembali 0; }
+  kembali jarak - butuh;
+}
+
+fungsi putuskan(k: Kendaraan) -> Perintah {
+  tp margin: bulat = selisih_aman(k.kecepatan, k.jarak);
+  jika margin == 0 dan k.kecepatan > 0 { kembali Perintah.Rem; }
+  jika k.kecepatan == 0 { kembali Perintah.Netral; }
+  kembali Perintah.Gas;
+}
+
+fungsi utama() {
+  tp k: Kendaraan = Kendaraan { kecepatan: 60, jarak: 500 };
+  cetak("jarak aman:", jarak_aman(k.kecepatan));
+  cetak("selisih:", selisih_aman(k.kecepatan, k.jarak));
+  cetak("perintah:", putuskan(k));
+
+  tp k2: Kendaraan = Kendaraan { kecepatan: 0, jarak: 0 };
+  cetak("perintah:", putuskan(k2));
+}

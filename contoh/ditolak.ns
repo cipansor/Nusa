@@ -1,0 +1,13 @@
+// Berkas ini SENGAJA gagal diperiksa tipe.
+// Coba: ./bin/nusa cek contoh/ditolak.ns
+pilihan Warna { Merah, Hijau, Biru }
+
+fungsi utama() {
+  tp x: bulat = 1;
+  x = 2;                      // galat: 'x' tetap (immutable)
+  ub y: cacah = x;            // galat: bulat bukan cacah
+  cocok Warna.Merah {         // galat: cocok tidak lengkap
+    kasus Merah { }
+  }
+  takaman { cetak("bebas"); } // galat: butuh --boleh-takaman
+}

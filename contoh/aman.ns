@@ -1,0 +1,17 @@
+// Semua operasi di bawah ini aman: pemeriksaan runtime menjaganya.
+fungsi utama() {
+  tp suhu: deret<bulat, 5> = [22, 25, 27, 26, 24];
+
+  ub total: bulat = 0;
+  untuk i dalam 0..5 {
+    total += suhu[i];
+  }
+  cetak("total:", total);
+  cetak("rata-rata:", total / 5);
+
+  ub mundur: cacah8 = 250;
+  mundur -= 3;
+  cetak("cacah8:", mundur);
+
+  cetak("bagi:", 100 / 7, "sisa:", 100 % 7);
+}
