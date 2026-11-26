@@ -621,7 +621,7 @@ impl<'a> Pemeriksa<'a> {
         }
     }
 
-    fn perlu_tempat(&mut self, e: &Expr, konteks: &str) -> Option<Tempat> {
+    fn tempat_tugas(&mut self, e: &Expr, konteks: &str) -> Option<Tempat> {
         let t = self.tempat(e);
         if t.is_none() {
             self.galat(
@@ -632,9 +632,15 @@ impl<'a> Pemeriksa<'a> {
                 ),
                 "E0301",
             );
-            return None;
         }
-        self.periksa_indeks_tempat(e);
+        t
+    }
+
+    fn perlu_tempat(&mut self, e: &Expr, konteks: &str) -> Option<Tempat> {
+        let t = self.tempat_tugas(e, konteks);
+        if t.is_some() {
+            self.periksa_indeks_tempat(e);
+        }
         t
     }
 
@@ -655,6 +661,51 @@ impl<'a> Pemeriksa<'a> {
             }
             ExprKind::Medan { dasar, .. } => self.periksa_indeks_tempat(dasar),
             _ => {}
+        }
+    }
+
+    /// Tempat tujuan harus tetap hidup setelah nilai dan indeks dievaluasi.
+    /// Pemindahan tepat pada medan tujuan diperbolehkan karena penugasan
+    /// mengisinya kembali; pemindahan leluhur/keturunannya tidak.
+    fn cek_tempat_tujuan_terpindah(&self, t: &Tempat) -> Option<String> {
+        let v = self.cari(&t.akar)?;
+        if v.dipindah {
+            return Some("seluruh nilai".to_string());
+        }
+        if t.jalur.is_empty() {
+            return None;
+        }
+        let dasar = t.jalur.split('[').next().unwrap_or(&t.jalur);
+        for p in &v.dipindah_medan {
+            if p == &t.jalur {
+                continue;
+            }
+            let konflik = p == dasar
+                || p.starts_with(&format!("{}.", dasar))
+                || dasar.starts_with(&format!("{}.", p));
+            if konflik {
+                return Some(format!("medan `{}`", p));
+            }
+        }
+        None
+    }
+
+    fn periksa_tempat_tujuan(&mut self, t: &Tempat, span: Span) {
+        if let Some(p) = self.cek_tempat_tujuan_terpindah(t) {
+            self.galat(
+                span,
+                format!("tempat tujuan `{}` tidak lagi hidup: {}", t.akar, p),
+                "E0320",
+            );
+        }
+        if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, false) {
+            if self.pinjaman_dari_lain(t.id) {
+                self.galat(
+                    span,
+                    format!("tidak boleh menulis `{}` selama ada {}", t.akar, p),
+                    "E0307",
+                );
+            }
         }
     }
 
@@ -804,7 +855,10 @@ impl<'a> Pemeriksa<'a> {
                 nilai,
                 span,
             } => {
-                let tempat = self.perlu_tempat(target, "penugasan");
+                // Nilai dievaluasi lebih dulu (sama seperti penafsir dan
+                // codegen). Indeks tujuan baru dievaluasi setelahnya, agar
+                // pembacaan nilai tidak salah dianggap terjadi setelah move.
+                let tempat = self.tempat_tugas(target, "penugasan");
                 if let Some(t) = &tempat {
                     if !t.ubah && self.takaman == 0 {
                         self.galat(
@@ -848,6 +902,10 @@ impl<'a> Pemeriksa<'a> {
                     );
                 }
                 if let Some(t) = &tempat {
+                    if !matches!(target.kind, ExprKind::Var(_)) {
+                        self.periksa_indeks_tempat(target);
+                        self.periksa_tempat_tujuan(t, *span);
+                    }
                     self.bersihkan_pindah(&t.akar, &t.jalur);
                 }
             }

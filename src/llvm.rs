@@ -1904,7 +1904,7 @@ impl<'a> Codegen<'a> {
         self.tutup_blok();
         let ret = self.llty(&f.hasil);
         let teks = format!(
-            "define {} @nusa_{}({}) {{\n{}{}}}\n",
+            "define {} @nusa_{}({}) sanitize_address {{\n{}{}}}\n",
             ret,
             f.nama,
             sig.join(", "),
@@ -1922,11 +1922,12 @@ impl<'a> Codegen<'a> {
             .map(|s| s.hasil.clone())
             .unwrap_or(Ty::Kosong);
         if hasil == Ty::Kosong {
-            "define i32 @main() {\n  call void @nusa_utama()\n  ret i32 0\n}\n".to_string()
+            "define i32 @main() sanitize_address {\n  call void @nusa_utama()\n  ret i32 0\n}\n"
+                .to_string()
         } else {
             let r = self.tmp();
             format!(
-                "define i32 @main() {{\n  {} = call i64 @nusa_utama()\n  %kode = trunc i64 {} to i32\n  ret i32 %kode\n}}\n",
+                "define i32 @main() sanitize_address {{\n  {} = call i64 @nusa_utama()\n  %kode = trunc i64 {} to i32\n  ret i32 %kode\n}}\n",
                 r, r
             )
         }

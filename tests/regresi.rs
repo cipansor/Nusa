@@ -767,6 +767,146 @@ fungsi utama() -> bil {
 }
 
 #[test]
+fn indeks_yang_memindahkan_tempat_tujuan_ditolak() {
+    periksa(
+        "indeks-memindahkan-tujuan",
+        r#"
+fungsi indeks(d: Daftar<bil>) -> bil { kembali 0 }
+fungsi utama() -> bil {
+    ub a: Daftar<bil> = daftar();
+    a.tambah(1);
+    a[indeks(a)] = 9;
+    kembali a[0]
+}
+"#,
+        "E0320",
+    );
+}
+
+#[test]
+fn indeks_daftar_boleh_memindahkan_wadah_lain() {
+    let program = r#"
+fungsi indeks(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub a: Daftar<bil> = daftar();
+    a.tambah(1); a.tambah(2);
+    ub d: Daftar<bil> = daftar();
+    d.tambah(3);
+    a[indeks(d)] = d.panjang();
+    cetak(a[1]);
+    kembali 0
+}
+"#;
+    let k = sama_di_dua_mesin("indeks-daftar-lain", program);
+    assert_eq!(k, "1\n");
+    if let Some(k) = jalankan_asan("indeks-daftar-lain-asan", program) {
+        assert_eq!(k, "1\n");
+    }
+}
+
+#[test]
+fn nilai_tugas_dievaluasi_sebelum_indeks_tujuan() {
+    let program = r#"
+fungsi indeks(d: Daftar<bil>) -> bil { kembali d.panjang() }
+fungsi utama() -> bil {
+    ub a: [bil; 2] = [1, 2];
+    ub d: Daftar<bil> = daftar();
+    d.tambah(3);
+    a[indeks(d)] = d.panjang();
+    cetak(a[0]);
+    kembali 0
+}
+"#;
+    let k = sama_di_dua_mesin("nilai-sebelum-indeks", program);
+    assert_eq!(k, "1\n");
+    if let Some(k) = jalankan_asan("nilai-sebelum-indeks-asan", program) {
+        assert_eq!(k, "1\n");
+    }
+}
+
+#[test]
+fn ir_menandai_fungsi_untuk_address_sanitizer() {
+    let d = dir("ir-asan");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(7);
+    kembali d[0]
+}
+"#,
+    );
+    let ir = jalankan(&["ir", f.to_str().unwrap()]);
+    assert!(ir.status.success(), "{}", teks_galat(&ir));
+    let teks = teks_keluar(&ir);
+    assert!(teks.contains("sanitize_address"), "{teks}");
+
+    let Some(clang) = clang() else {
+        return;
+    };
+    let ll = d.join("program.ll");
+    fs::write(&ll, &ir.stdout).unwrap();
+    let hasil = d.join("asan.ll");
+    let c = Command::new(clang)
+        .args(["-fsanitize=address", "-O0", "-S", "-emit-llvm", "-o"])
+        .arg(&hasil)
+        .arg(&ll)
+        .output()
+        .unwrap();
+    assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
+    let instrumentasi = fs::read_to_string(&hasil).unwrap();
+    assert!(
+        instrumentasi.contains("__asan_report_load") || instrumentasi.contains("__asan_load"),
+        "akses heap tidak diinstrumentasi: {}",
+        instrumentasi
+    );
+}
+
+#[test]
+fn bukti_irisan_yang_memendek_tidak_lolos() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-irisan-memendek");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub a: [bil] = [10, 20];
+    ub jalan: log = benar;
+    selama jalan {
+        a = [10];
+        jalan = salah;
+    }
+    kembali a[1]
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("indeks dalam batas"), "{gabung}");
+
+    let biner = d.join("program");
+    let o = jalankan(&[
+        "bangun",
+        f.to_str().unwrap(),
+        "-o",
+        biner.to_str().unwrap(),
+        "--bebas-jaga",
+    ]);
+    assert!(!o.status.success());
+    assert!(
+        teks_galat(&o).contains("--bebas-jaga"),
+        "{}",
+        teks_galat(&o)
+    );
+}
+
+#[test]
 fn bukti_larik_tetap_tidak_kehilangan_panjang_setelah_loop() {
     if !ada_z3() {
         return;
