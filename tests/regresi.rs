@@ -960,10 +960,12 @@ fn bukti_bayang_lokal_memulihkan_irisan_luar() {
 fungsi utama() -> bil {
     ub a: [bil] = [10, 20];
     {
+        a = [1, 2];
         ub a: [bil; 1] = [0];
-        a[0] = 1;
+        a[0] = 3;
     }
-    tegas a[1] == a[1]
+    tegas a[0] == 1
+    tegas a[1] == 2
     kembali 0
 }
 "#,

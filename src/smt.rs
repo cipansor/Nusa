@@ -105,6 +105,7 @@ struct Vc<'a> {
     versi: HashMap<String, u32>,
     spek: bool,
     lewat: Option<String>,
+    pulih: Vec<Vec<(String, Option<Nl>)>>,
 }
 
 pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
@@ -155,6 +156,7 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
             versi: HashMap::new(),
             spek: false,
             lewat: None,
+            pulih: Vec::new(),
         };
         let hasil = vc.jalankan();
         if hasil.dilewati.is_some() {
@@ -350,24 +352,22 @@ impl<'a> Vc<'a> {
     }
 
     fn blok(&mut self, b: &Block, j: &mut Jalur) {
-        let nama = nama_ikat(b);
-        let lama: Vec<(String, Option<Nl>)> = nama
-            .iter()
-            .map(|n| (n.clone(), j.env.get(n).cloned()))
-            .collect();
+        self.pulih.push(Vec::new());
         for s in &b.stmts {
             if !j.hidup {
                 break;
             }
             self.stmt(s, j);
         }
-        for (n, v) in lama {
-            match v {
-                Some(v) => {
-                    j.env.insert(n, v);
-                }
-                None => {
-                    j.env.remove(&n);
+        if let Some(lama) = self.pulih.pop() {
+            for (n, v) in lama.into_iter().rev() {
+                match v {
+                    Some(v) => {
+                        j.env.insert(n, v);
+                    }
+                    None => {
+                        j.env.remove(&n);
+                    }
                 }
             }
         }
@@ -389,6 +389,9 @@ impl<'a> Vc<'a> {
                             n.panjang = Some(k.to_string());
                         }
                     }
+                }
+                if let Some(lama) = self.pulih.last_mut() {
+                    lama.push((nama.clone(), j.env.get(nama).cloned()));
                 }
                 j.env.insert(nama.clone(), n);
             }
@@ -1278,16 +1281,6 @@ fn kumpul_tugas(b: &Block, s: &mut Diubah, bayang: &mut HashSet<String>) {
             _ => {}
         }
     }
-}
-
-fn nama_ikat(b: &Block) -> Vec<String> {
-    b.stmts
-        .iter()
-        .filter_map(|st| match st {
-            Stmt::Ikat { nama, .. } => Some(nama.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn ada_lompat(b: &Block) -> bool {
