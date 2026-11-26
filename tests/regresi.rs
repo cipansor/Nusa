@@ -975,6 +975,93 @@ fungsi utama() -> bil {
 }
 
 #[test]
+fn bukti_gabung_panjang_irisan_mengikuti_cabang() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-gabung-panjang");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(c: log) -> bil {
+    ub a: [bil] = [10, 20];
+    jika c {
+        ub a: [bil; 1] = [0];
+    } selain {
+        a = [1];
+    }
+    kembali a[1]
+}
+fungsi utama() -> bil { kembali uji(benar) }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+    assert!(gabung.contains("(ite c_1 2 1)"), "{gabung}");
+
+    let biner = d.join("program");
+    let o = jalankan(&[
+        "bangun",
+        f.to_str().unwrap(),
+        "-o",
+        biner.to_str().unwrap(),
+        "--bebas-jaga",
+    ]);
+    assert!(!o.status.success());
+    assert!(
+        teks_galat(&o).contains("--bebas-jaga"),
+        "{}",
+        teks_galat(&o)
+    );
+}
+
+#[test]
+fn bukti_parameter_larik_tetap_memakai_panjang_tetap() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-parameter-larik");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(p: [bil; 2]) -> bil {
+    ub a = p;
+    untuk i dalam 0..panjang(p) { a[i] = i }
+    kembali a[1]
+}
+fungsi utama() -> bil { kembali uji([4, 5]) }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn takaman_dengan_lompat_dilewati_verifier() {
+    let d = dir("takaman-lompat");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    untuk i dalam 0..2 {
+        takaman { henti }
+    }
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap(), "--boleh-takaman"]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("fungsi dilewati"), "{gabung}");
+}
+
+#[test]
 fn bukti_larik_tetap_tidak_kehilangan_panjang_setelah_loop() {
     if !ada_z3() {
         return;

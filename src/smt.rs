@@ -301,13 +301,15 @@ impl<'a> Vc<'a> {
         let mut pc: Vec<String> = Vec::new();
         for p in &f.params {
             let s = self.segar(&p.nama, &p.ty);
-            let panjang = if matches!(p.ty, Ty::Array(_, _) | Ty::Irisan(_)) {
-                Some(format!("{}_len", s))
-            } else {
-                None
+            let panjang = match &p.ty {
+                Ty::Array(_, n) => Some(n.to_string()),
+                Ty::Irisan(_) => Some(format!("{}_len", s)),
+                _ => None,
             };
-            if let Some(l) = &panjang {
-                pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
+            if let Ty::Irisan(_) = p.ty {
+                if let Some(l) = &panjang {
+                    pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
+                }
             }
             if let Some(d) = domain(&p.ty, &s) {
                 pc.push(d);
@@ -389,6 +391,8 @@ impl<'a> Vc<'a> {
                             n.panjang = Some(k.to_string());
                         }
                     }
+                } else if let Ty::Array(_, k) = &n.ty {
+                    n.panjang = Some(k.to_string());
                 }
                 if let Some(lama) = self.pulih.last_mut() {
                     lama.push((nama.clone(), j.env.get(nama).cloned()));
@@ -689,12 +693,16 @@ impl<'a> Vc<'a> {
             return;
         };
         let baru = self.segar(nama, &lama.ty);
+        let panjang = match &lama.ty {
+            Ty::Array(_, n) => Some(n.to_string()),
+            _ => lama.panjang,
+        };
         j.env.insert(
             nama.to_string(),
             Nl {
                 term: baru,
                 ty: lama.ty,
-                panjang: lama.panjang,
+                panjang,
             },
         );
     }
@@ -725,18 +733,24 @@ impl<'a> Vc<'a> {
                 let mut env = Env::new();
                 for (nama, na) in &a.env {
                     if let Some(nb) = b.env.get(nama) {
-                        if na.term == nb.term {
-                            env.insert(nama.clone(), na.clone());
+                        let term = if na.term == nb.term {
+                            na.term.clone()
                         } else {
-                            env.insert(
-                                nama.clone(),
-                                Nl {
-                                    term: format!("(ite {} {} {})", k, na.term, nb.term),
-                                    ty: na.ty.clone(),
-                                    panjang: na.panjang.clone(),
-                                },
-                            );
-                        }
+                            format!("(ite {} {} {})", k, na.term, nb.term)
+                        };
+                        let panjang = match (&na.panjang, &nb.panjang) {
+                            (Some(pa), Some(pb)) if pa == pb => Some(pa.clone()),
+                            (Some(pa), Some(pb)) => Some(format!("(ite {} {} {})", k, pa, pb)),
+                            _ => None,
+                        };
+                        env.insert(
+                            nama.clone(),
+                            Nl {
+                                term,
+                                ty: na.ty.clone(),
+                                panjang,
+                            },
+                        );
                     } else {
                         env.insert(nama.clone(), na.clone());
                     }
@@ -1292,7 +1306,7 @@ fn ada_lompat(b: &Block) -> bool {
         Stmt::Selama { badan, .. }
         | Stmt::UntukRentang { badan, .. }
         | Stmt::UntukIsi { badan, .. } => ada_lompat(badan),
-        Stmt::Blok(b) => ada_lompat(b),
+        Stmt::Blok(b) | Stmt::Takaman(b) => ada_lompat(b),
         _ => false,
     })
 }
