@@ -228,6 +228,10 @@ jobs:
       - lint
       - test
       - proof
+      - coverage
+      - audit
+      - shellcheck
+      - docs
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
