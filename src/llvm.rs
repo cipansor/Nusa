@@ -1585,7 +1585,10 @@ impl<'a> Codegen<'a> {
                 };
                 let mut argv = Vec::new();
                 for (i, a) in args.iter().enumerate() {
+                    let simpan = self.ctx.jangan_pindah;
+                    self.ctx.jangan_pindah = 0;
                     let v = self.ekspresi(a);
+                    self.ctx.jangan_pindah = simpan;
                     let harap = params.get(i).cloned().unwrap_or(v.ty.clone());
                     let v = self.ubah_tipe(v, &harap);
                     let t = self.llty(&v.ty);

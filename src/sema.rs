@@ -48,6 +48,7 @@ pub struct Sema {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 struct Var {
+    id: u64,
     ty: Ty,
     ubah: bool,
     dipindah: bool,
@@ -65,6 +66,7 @@ struct Pinjaman {
 
 #[derive(Clone, Debug)]
 struct Tempat {
+    id: u64,
     ty: Ty,
     ubah: bool,
     akar: String,
@@ -75,7 +77,8 @@ struct Tempat {
 struct FungsiCtx {
     hasil: Ty,
     lingkup: Vec<HashMap<String, Var>>,
-    pinjaman: HashMap<String, Vec<Pinjaman>>,
+    pinjaman: HashMap<u64, Vec<Pinjaman>>,
+    id_berikut: u64,
     jangan_pindah: u32,
     kedalaman: usize,
     dalam_selama: u32,
@@ -378,15 +381,18 @@ impl Sema {
             hasil: f.hasil.clone(),
             lingkup: vec![HashMap::new()],
             pinjaman: HashMap::new(),
+            id_berikut: 0,
             jangan_pindah: 0,
             kedalaman: 0,
             dalam_selama: 0,
             dalam_jamin: false,
         };
         for p in &f.params {
+            ctx.id_berikut += 1;
             ctx.lingkup[0].insert(
                 p.nama.clone(),
                 Var {
+                    id: ctx.id_berikut,
                     ty: p.ty.clone(),
                     ubah: p.ty.is_ubah_param(),
                     dipindah: false,
@@ -535,8 +541,13 @@ impl<'a> Pemeriksa<'a> {
         }
     }
 
-    fn pinjaman_aktif(&self, akar: &str, ubah_saja: bool) -> Option<String> {
-        if let Some(d) = self.ctx.pinjaman.get(akar) {
+    fn id_var(&mut self) -> u64 {
+        self.ctx.id_berikut += 1;
+        self.ctx.id_berikut
+    }
+
+    fn pinjaman_aktif(&self, id: u64, akar: &str, ubah_saja: bool) -> Option<String> {
+        if let Some(d) = self.ctx.pinjaman.get(&id) {
             for p in d {
                 if !ubah_saja || p.ubah {
                     return Some(match (&p.oleh, p.ubah) {
@@ -557,6 +568,7 @@ impl<'a> Pemeriksa<'a> {
                 let v = self.cari(n)?.clone();
                 self.s.tipe.insert(e.id, v.ty.clone());
                 Some(Tempat {
+                    id: v.id,
                     ty: v.ty,
                     ubah: v.ubah,
                     akar: n.clone(),
@@ -580,6 +592,7 @@ impl<'a> Pemeriksa<'a> {
                     format!("{}.{}", d.jalur, nama)
                 };
                 Some(Tempat {
+                    id: d.id,
                     ty,
                     ubah: d.ubah,
                     akar: d.akar,
@@ -597,6 +610,7 @@ impl<'a> Pemeriksa<'a> {
                 self.s.tipe.insert(e.id, ty.clone());
                 let jalur = format!("{}[]", d.jalur);
                 Some(Tempat {
+                    id: d.id,
                     ty,
                     ubah: d.ubah,
                     akar: d.akar,
@@ -618,8 +632,30 @@ impl<'a> Pemeriksa<'a> {
                 ),
                 "E0301",
             );
+            return None;
         }
+        self.periksa_indeks_tempat(e);
         t
+    }
+
+    /// Tempat yang boleh ditulis harus mengevaluasi indeksnya, supaya
+    /// metadata panggilan (dan pemindahan argumen) tidak hilang.
+    fn periksa_indeks_tempat(&mut self, e: &Expr) {
+        match &e.kind {
+            ExprKind::Indeks { dasar, indeks } => {
+                self.periksa_indeks_tempat(dasar);
+                let ti = self.eks(indeks, Some(&Ty::Bil));
+                if !self.bulat(&ti) {
+                    self.galat(
+                        indeks.span,
+                        format!("indeks harus bilangan bulat, bukan `{}`", ti.sebutan()),
+                        "E0335",
+                    );
+                }
+            }
+            ExprKind::Medan { dasar, .. } => self.periksa_indeks_tempat(dasar),
+            _ => {}
+        }
     }
 
     /// `Some(jejak)` bila `akar.jalur` tidak boleh dipakai karena sudah
@@ -696,7 +732,7 @@ impl<'a> Pemeriksa<'a> {
                     }
                 }
                 let akar_awal = match &nilai.kind {
-                    ExprKind::Alamat { dasar, .. } => self.tempat(dasar).map(|t| t.akar),
+                    ExprKind::Alamat { dasar, .. } => self.tempat(dasar).map(|t| (t.id, t.akar)),
                     _ => None,
                 };
                 let t_nilai = self.eks(nilai, ty.as_ref());
@@ -707,8 +743,8 @@ impl<'a> Pemeriksa<'a> {
                         "E0302",
                     );
                 }
-                if let Some(akar) = akar_awal {
-                    if let Some(daftar) = self.ctx.pinjaman.get_mut(&akar) {
+                if let Some((id, _akar)) = akar_awal {
+                    if let Some(daftar) = self.ctx.pinjaman.get_mut(&id) {
                         if let Some(last) = daftar.last_mut() {
                             last.oleh = Some(nama.clone());
                             last.kedalaman = self.ctx.kedalaman;
@@ -750,9 +786,11 @@ impl<'a> Pemeriksa<'a> {
                     );
                 }
                 let k = self.ctx.kedalaman;
+                let id = self.id_var();
                 self.ctx.lingkup.last_mut().unwrap().insert(
                     nama.clone(),
                     Var {
+                        id,
                         ty: t_final.clone(),
                         ubah: !*tetap,
                         dipindah: false,
@@ -778,8 +816,8 @@ impl<'a> Pemeriksa<'a> {
                             "E0306",
                         );
                     }
-                    if let Some(p) = self.pinjaman_aktif(&t.akar, false) {
-                        if self.pinjaman_dari_lain(&t.akar) {
+                    if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, false) {
+                        if self.pinjaman_dari_lain(t.id) {
                             self.galat(
                                 *span,
                                 format!("tidak boleh menulis `{}` selama ada {}", t.akar, p),
@@ -889,9 +927,11 @@ impl<'a> Pemeriksa<'a> {
                 self.masuk();
                 self.ctx.dalam_selama += 1;
                 let k = self.ctx.kedalaman;
+                let id = self.id_var();
                 self.ctx.lingkup.last_mut().unwrap().insert(
                     nama.clone(),
                     Var {
+                        id,
                         ty: Ty::Bil,
                         ubah: false,
                         dipindah: false,
@@ -940,20 +980,18 @@ impl<'a> Pemeriksa<'a> {
                 self.masuk();
                 self.ctx.dalam_selama += 1;
                 if let Some(t) = wadah_tempat {
-                    self.ctx
-                        .pinjaman
-                        .entry(t.akar.clone())
-                        .or_default()
-                        .push(Pinjaman {
-                            ubah: false,
-                            oleh: Some(format!("iterasi `{}`", nama)),
-                            kedalaman: self.ctx.kedalaman,
-                        });
+                    self.ctx.pinjaman.entry(t.id).or_default().push(Pinjaman {
+                        ubah: false,
+                        oleh: Some(format!("iterasi `{}`", nama)),
+                        kedalaman: self.ctx.kedalaman,
+                    });
                 }
                 let k = self.ctx.kedalaman;
+                let id = self.id_var();
                 self.ctx.lingkup.last_mut().unwrap().insert(
                     nama.clone(),
                     Var {
+                        id,
                         ty: elemen,
                         ubah: false,
                         dipindah: false,
@@ -1132,10 +1170,10 @@ impl<'a> Pemeriksa<'a> {
         }
     }
 
-    fn pinjaman_dari_lain(&self, akar: &str) -> bool {
+    fn pinjaman_dari_lain(&self, id: u64) -> bool {
         self.ctx
             .pinjaman
-            .get(akar)
+            .get(&id)
             .map(|d| d.iter().any(|p| p.oleh.is_some()))
             .unwrap_or(false)
     }
@@ -1210,7 +1248,7 @@ impl<'a> Pemeriksa<'a> {
                         if let Some(p) = konflik {
                             self.galat(e.span, format!("`{}` sudah dipindahkan (move): {}; nilai tidak boleh dipakai lagi", n, p), "E0320");
                         }
-                        if let Some(p) = self.pinjaman_aktif(n, true) {
+                        if let Some(p) = self.pinjaman_aktif(v.id, n, true) {
                             self.galat(
                                 e.span,
                                 format!("`{}` sedang dipinjam secara eksklusif oleh {}", n, p),
@@ -1218,7 +1256,7 @@ impl<'a> Pemeriksa<'a> {
                             );
                         }
                         if !self.s.boleh_salin(&v.ty) && self.ctx.jangan_pindah == 0 {
-                            if let Some(p) = self.pinjaman_aktif(n, false) {
+                            if let Some(p) = self.pinjaman_aktif(v.id, n, false) {
                                 self.galat(
                                     e.span,
                                     format!("tidak dapat memindahkan `{}` selama ada {}", n, p),
@@ -1397,7 +1435,7 @@ impl<'a> Pemeriksa<'a> {
                             "E0332",
                         );
                     }
-                    if let Some(p) = self.pinjaman_aktif(&t.akar, false) {
+                    if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, false) {
                         self.galat(
                             e.span,
                             format!(
@@ -1407,7 +1445,7 @@ impl<'a> Pemeriksa<'a> {
                             "E0333",
                         );
                     }
-                } else if let Some(p) = self.pinjaman_aktif(&t.akar, true) {
+                } else if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, true) {
                     self.galat(
                         e.span,
                         format!("tidak dapat meminjam `&{}` karena sudah ada {}", t.akar, p),
@@ -1415,15 +1453,11 @@ impl<'a> Pemeriksa<'a> {
                     );
                 }
                 let k = self.ctx.kedalaman;
-                self.ctx
-                    .pinjaman
-                    .entry(t.akar.clone())
-                    .or_default()
-                    .push(Pinjaman {
-                        ubah: *ubah,
-                        oleh: None,
-                        kedalaman: k,
-                    });
+                self.ctx.pinjaman.entry(t.id).or_default().push(Pinjaman {
+                    ubah: *ubah,
+                    oleh: None,
+                    kedalaman: k,
+                });
                 let hasil = Ty::Ref {
                     ubah: *ubah,
                     dalam: Box::new(t.ty),
@@ -1443,11 +1477,11 @@ impl<'a> Pemeriksa<'a> {
                         "E0335",
                     );
                 }
-                if let Some(akar) = self.tempat(dasar).map(|t| t.akar) {
-                    if let Some(p) = self.pinjaman_aktif(&akar, true) {
+                if let Some(t) = self.tempat(dasar) {
+                    if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, true) {
                         self.galat(
                             e.span,
-                            format!("`{}` sedang dipinjam secara eksklusif oleh {}", akar, p),
+                            format!("`{}` sedang dipinjam secara eksklusif oleh {}", t.akar, p),
                             "E0336",
                         );
                     }
@@ -1489,7 +1523,7 @@ impl<'a> Pemeriksa<'a> {
                     }
                 });
                 if let Some(t) = &tempat_dasar {
-                    if let Some(p) = self.pinjaman_aktif(&t.akar, true) {
+                    if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, true) {
                         self.galat(
                             e.span,
                             format!("`{}` sedang dipinjam secara eksklusif oleh {}", t.akar, p),
@@ -1552,7 +1586,7 @@ impl<'a> Pemeriksa<'a> {
                     if matches!(td, Ty::Ref { .. }) {
                         self.galat(e.span, "tidak dapat memindahkan medan keluar dari pinjaman; salin dulu ke variabel lokal".into(), "E0377");
                     } else if let (Some(t), Some(jalur)) = (&tempat_dasar, &jalur_medan) {
-                        if let Some(p) = self.pinjaman_aktif(&t.akar, false) {
+                        if let Some(p) = self.pinjaman_aktif(t.id, &t.akar, false) {
                             self.galat(
                                 e.span,
                                 format!(
@@ -1718,6 +1752,16 @@ impl<'a> Pemeriksa<'a> {
                     return Ty::Array(Box::new(Ty::Bil), 0);
                 }
                 let t0 = self.eks(&isi[0], harap_elemen.as_ref());
+                if self.s.memuat_heap(&t0) || !self.s.boleh_salin(&t0) {
+                    self.galat(
+                        e.span,
+                        format!(
+                            "larik tidak boleh berisi tipe `{}` yang memiliki memori heap atau tidak dapat disalin",
+                            t0.sebutan()
+                        ),
+                        "E0203",
+                    );
+                }
                 for x in &isi[1..] {
                     let tx = self.eks(x, Some(&t0));
                     if !self.cocok(&t0, &tx) {
@@ -1789,7 +1833,7 @@ impl<'a> Pemeriksa<'a> {
                 "E0383",
             );
         }
-        if let Some(p) = self.pinjaman_aktif(&tempat.akar, false) {
+        if let Some(p) = self.pinjaman_aktif(tempat.id, &tempat.akar, false) {
             self.galat(
                 args[0].span,
                 format!("tidak dapat mengubah `{}` selama ada {}", tempat.akar, p),
@@ -1900,7 +1944,10 @@ impl<'a> Pemeriksa<'a> {
             for (i, a) in args.iter().enumerate() {
                 match sig.params.get(i) {
                     Some(p) => {
+                        let simpan = self.ctx.jangan_pindah;
+                        self.ctx.jangan_pindah = 0;
                         let t = self.eks(a, Some(p));
+                        self.ctx.jangan_pindah = simpan;
                         if !self.cocok(p, &t) {
                             self.galat(
                                 a.span,

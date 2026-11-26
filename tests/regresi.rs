@@ -24,9 +24,58 @@ fn jalankan(args: &[&str]) -> Output {
 }
 
 fn ada_llc() -> bool {
-    ["llc-19", "llc"]
+    ["llc-19", "llc-18", "llc", "clang-19", "clang"]
         .iter()
-        .any(|t| Command::new(t).arg("--version").output().is_ok())
+        .any(|t| {
+            Command::new(t)
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        })
+}
+
+fn clang() -> Option<&'static str> {
+    ["clang-19", "clang"].into_iter().find(|t| {
+        Command::new(t)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+}
+
+fn jalankan_asan(nama: &str, isi: &str) -> Option<String> {
+    let clang = clang()?;
+    let d = dir(nama);
+    let f = tulis(&d, "program.ns", isi);
+    let ir = jalankan(&["ir", f.to_str().unwrap()]);
+    assert!(ir.status.success(), "{}", teks_galat(&ir));
+    let ll = d.join("program.ll");
+    fs::write(&ll, &ir.stdout).unwrap();
+    let biner = d.join("program-asan");
+    let rt = Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/nusa_rt.c");
+    let c = Command::new(clang)
+        .args(["-fsanitize=address", "-g", "-o"])
+        .arg(&biner)
+        .arg(&ll)
+        .arg(&rt)
+        .output()
+        .unwrap();
+    assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
+    let run = Command::new(&biner)
+        .env("ASAN_OPTIONS", "detect_leaks=1")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "biner ASAN gagal: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let galat = String::from_utf8_lossy(&run.stderr);
+    assert!(!galat.contains("LeakSanitizer"), "{galat}");
+    assert!(!galat.contains("AddressSanitizer"), "{galat}");
+    Some(teks_keluar(&run))
 }
 
 fn teks_keluar(o: &Output) -> String {
@@ -638,13 +687,8 @@ fungsi utama() -> bil {
 
 #[test]
 fn daftar_dibebaskan_pada_kembali_dan_lanjut() {
-    if Command::new("clang").arg("--version").output().is_err() {
-        return;
-    }
-    let d = dir("bebas-daftar");
-    let f = tulis(
-        &d,
-        "program.ns",
+    let Some(keluaran) = jalankan_asan(
+        "bebas-daftar",
         r#"
 fungsi pakai(d: Daftar<bil>) -> bil { kembali d.panjang() }
 fungsi utama() -> bil {
@@ -658,28 +702,130 @@ fungsi utama() -> bil {
     }
     ub e: Daftar<bil> = daftar();
     e.tambah(5);
-    kembali pakai(e)
+    cetak(pakai(e));
+    kembali 0
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(keluaran, "1\n1\n1\n1\n");
+}
+
+#[test]
+fn panggilan_di_kepala_loop_memindahkan_argumen_daftar() {
+    let program = r#"
+fungsi ukuran(d: Daftar<bil>) -> [bil; 1] {
+    kembali [d.panjang()]
+}
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(7);
+    untuk x dalam ukuran(d) { cetak(x); }
+    kembali 0
+}
+"#;
+    let k = sama_di_dua_mesin("kepala-loop", program);
+    assert_eq!(k, "1\n");
+    if let Some(k) = jalankan_asan("kepala-loop-asan", program) {
+        assert_eq!(k, "1\n");
+    }
+}
+
+#[test]
+fn larik_tersimpul_berisi_daftar_ditolak() {
+    periksa(
+        "larik-tersimpul-daftar",
+        r#"
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(1);
+    ub a = [d];
+    ub e = a[0];
+    kembali e.panjang()
+}
+"#,
+        "E0203",
+    );
+}
+
+#[test]
+fn indeks_panggilan_pada_penugasan_larik_tetap() {
+    let k = sama_di_dua_mesin(
+        "indeks-panggilan-tulis",
+        r#"
+fungsi pilih() -> bil { kembali 1 }
+fungsi utama() -> bil {
+    ub a: [bil; 2] = [1, 2];
+    a[pilih()] = 9;
+    cetak(a[0], ",", a[1]);
+    kembali 0
 }
 "#,
     );
-    let ir = jalankan(&["ir", f.to_str().unwrap()]);
-    assert!(ir.status.success(), "{}", teks_galat(&ir));
-    let ll = d.join("program.ll");
-    fs::write(&ll, &ir.stdout).unwrap();
-    let biner = d.join("program-asan");
-    let rt = Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/nusa_rt.c");
-    let c = Command::new("clang")
-        .args(["-fsanitize=address", "-g", "-o"])
-        .arg(&biner)
-        .arg(&ll)
-        .arg(&rt)
-        .output()
-        .unwrap();
-    assert!(c.status.success(), "{}", String::from_utf8_lossy(&c.stderr));
-    let run = Command::new(&biner)
-        .env("ASAN_OPTIONS", "detect_leaks=1")
-        .output()
-        .unwrap();
-    let galat = String::from_utf8_lossy(&run.stderr);
-    assert!(!galat.contains("LeakSanitizer"), "{galat}");
+    assert_eq!(k, "1,9\n");
+}
+
+#[test]
+fn bukti_larik_tetap_tidak_kehilangan_panjang_setelah_loop() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-larik-panjang");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub a: [bil; 1] = [0];
+    selama a[0] == 0 { a[0] = 1 }
+    tegas a[0] == a[0]
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn bukti_loop_rentang_mempertahankan_binding_luar() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-bayang-rentang");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi utama() -> bil {
+    ub i: bil = 7;
+    untuk i dalam 0..2 { cetak(i) }
+    tegas i == 7
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn variabel_bayangan_di_badan_iterasi_boleh_ditulis() {
+    let k = sama_di_dua_mesin(
+        "bayang-iterasi",
+        r#"
+fungsi utama() -> bil {
+    ub d: Daftar<bil> = daftar();
+    d.tambah(5);
+    untuk x dalam d {
+        ub d: bil = 0;
+        d = x;
+        cetak(d);
+    }
+    kembali 0
+}
+"#,
+    );
+    assert_eq!(k, "5\n");
 }

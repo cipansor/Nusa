@@ -524,15 +524,9 @@ impl<'a> Vc<'a> {
                         self.havok(&mut keluar_, &nama_diubah);
                     }
                 }
+                // Simbol keluar privat: jangan menimpa binding luar yang
+                // mungkin dibayangi oleh variabel loop.
                 let i_keluar = self.segar(nama, &Ty::Bil);
-                keluar_.env.insert(
-                    nama.clone(),
-                    Nl {
-                        term: i_keluar.clone(),
-                        ty: Ty::Bil,
-                        panjang: None,
-                    },
-                );
                 let kond_keluar = if *inklusif {
                     format!("(<= {} {})", i_keluar, akhir)
                 } else {
@@ -634,12 +628,14 @@ impl<'a> Vc<'a> {
             return;
         };
         let baru = self.segar(nama, &lama.ty);
-        let panjang = if matches!(lama.ty, Ty::Array(_, _) | Ty::Irisan(_)) {
-            let l = self.segar(&format!("{}__len", nama), &Ty::Bil);
-            j.pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
-            Some(l)
-        } else {
-            None
+        let panjang = match &lama.ty {
+            Ty::Array(_, n) => Some(n.to_string()),
+            Ty::Irisan(_) => {
+                let l = self.segar(&format!("{}__len", nama), &Ty::Bil);
+                j.pc.push(format!("(and (>= {} 0) (<= {} 9223372036854775807))", l, l));
+                Some(l)
+            }
+            _ => None,
         };
         j.env.insert(
             nama.to_string(),
