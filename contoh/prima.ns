@@ -1,0 +1,27 @@
+# Saringan bilangan prima sederhana.
+fungsi prima_hingga(n: bil) -> daftar<bil>
+    syarat n >= 2
+{
+    var hasil: daftar<bil> = []
+    var i: bil = 2
+    selama i <= n {
+        var prima: log = benar
+        var j: bil = 2
+        selama j * j <= i {
+            jika i % j == 0 {
+                prima = salah
+                hentikan
+            }
+            j += 1
+        }
+        jika prima {
+            hasil.tambah(i)
+        }
+        i += 1
+    }
+    kembalikan hasil
+}
+
+fungsi utama() -> kosong {
+    cetakln(prima_hingga(50))
+}

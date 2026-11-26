@@ -1,0 +1,21 @@
+# Daftar memiliki semantik nilai (copy-on-write di balik layar).
+fungsi jumlah(d: daftar<bil>) -> bil {
+    var total: bil = 0
+    untuk x dalam d {
+        total += x
+    }
+    kembalikan total
+}
+
+fungsi utama() -> kosong {
+    var a: daftar<bil> = [3, 1, 4, 1, 5]
+    var b: daftar<bil> = a
+    b.tambah(9)
+    cetakln("a = ", a)
+    cetakln("b = ", b)
+    cetakln("jumlah a = ", jumlah(a))
+    cetakln("panjang b = ", b.panjang())
+    b[0] = 10
+    cetakln("b diubah = ", b)
+    cetakln("a tetap = ", a)
+}

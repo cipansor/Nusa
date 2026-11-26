@@ -1,0 +1,14 @@
+# Fibonacci rekursif: uji kecepatan dan optimisasi LLVM.
+fungsi fib(n: bil) -> bil
+    syarat n >= 0
+    jamin hasil >= 0
+{
+    jika n < 2 {
+        kembalikan n
+    }
+    kembalikan fib(n - 1) + fib(n - 2)
+}
+
+fungsi utama() -> kosong {
+    cetakln(fib(32))
+}

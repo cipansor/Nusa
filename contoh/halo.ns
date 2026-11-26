@@ -1,0 +1,4 @@
+# Program pertama: halo dunia
+fungsi utama() -> kosong {
+    cetakln("Halo, Nusa!")
+}

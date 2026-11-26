@@ -1,0 +1,24 @@
+# Kontrak diperiksa saat berjalan (dan dapat dibuktikan dengan `nusa verifikasi`).
+fungsi bagi(a: bil, b: bil) -> bil
+    syarat a >= 0 dan b > 0
+    jamin hasil >= 0 dan hasil <= a
+{
+    kembalikan a / b
+}
+
+fungsi akar_bawah(x: bil) -> bil
+    syarat x >= 0
+    jamin hasil * hasil <= x
+{
+    var r: bil = 0
+    selama (r + 1) * (r + 1) <= x invarian r * r <= x dan r >= 0 {
+        r += 1
+    }
+    kembalikan r
+}
+
+fungsi utama() -> kosong {
+    cetakln(bagi(17, 5))
+    cetakln(akar_bawah(50))
+    tegaskan 2 + 2 == 4
+}

@@ -1,0 +1,39 @@
+# Contoh verifikasi formal dengan kontrak.
+fungsi tambah_satu(a: bil) -> bil
+    syarat a >= 0
+    jamin hasil >= 1
+{
+    kembalikan a + 1
+}
+
+fungsi maks(a: bil, b: bil) -> bil
+    jamin hasil >= a dan hasil >= b
+{
+    jika a > b {
+        kembalikan a
+    }
+    kembalikan b
+}
+
+fungsi tambah_loop(n: bil) -> bil
+    syarat n >= 0
+    jamin hasil >= 0
+{
+    var t: bil = 0
+    var i: bil = 0
+    selama i < n invarian t >= 0 dan i >= 0 dan i <= n {
+        i += 1
+        t += 1
+    }
+    kembalikan t
+}
+
+fungsi keliru(a: bil) -> bil
+    jamin hasil > 0
+{
+    kembalikan a
+}
+
+fungsi utama() -> kosong {
+    cetakln(tambah_satu(1))
+}

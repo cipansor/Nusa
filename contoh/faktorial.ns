@@ -1,0 +1,17 @@
+# Faktorial rekursif dengan kontrak.
+fungsi faktorial(n: bil) -> bil
+    syarat n >= 0
+    jamin hasil >= 1
+{
+    jika n <= 1 {
+        kembalikan 1
+    }
+    kembalikan n * faktorial(n - 1)
+}
+
+fungsi utama() -> kosong {
+    untuk i dalam 0..=10 {
+        cetak(i, "! = ", faktorial(i))
+        cetakln("")
+    }
+}

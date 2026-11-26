@@ -1,0 +1,38 @@
+# Contoh gaya sistem kritis: setiap fungsi punya kontrak yang dapat dibuktikan.
+#   nusa verifikasi contoh/kritis.ns
+fungsi batasi(x: bil, bawah: bil, atas: bil) -> bil
+    syarat bawah <= atas
+    jamin hasil >= bawah dan hasil <= atas
+{
+    jika x < bawah {
+        kembalikan bawah
+    }
+    jika x > atas {
+        kembalikan atas
+    }
+    kembalikan x
+}
+
+fungsi absolut(x: bil) -> bil
+    jamin hasil >= 0
+{
+    jika x < 0 {
+        kembalikan -x
+    }
+    kembalikan x
+}
+
+fungsi tambah_aman(a: bil, b: bil) -> bil
+    syarat a >= 0 dan b >= 0 dan a <= 1000000 dan b <= 1000000
+    jamin hasil >= 0 dan hasil >= a
+{
+    kembalikan a + b
+}
+
+fungsi utama() -> kosong {
+    cetakln(batasi(15, 0, 10))
+    cetakln(batasi(-3, 0, 10))
+    cetakln(batasi(5, 0, 10))
+    cetakln(absolut(-42))
+    cetakln(tambah_aman(7, 8))
+}

@@ -1,0 +1,15 @@
+# Operasi teks: gabung, panjang, banding, dan iterasi daftar teks.
+fungsi utama() -> kosong {
+    var s: teks = "Nusa"
+    s += " untuk Indonesia"
+    cetakln(s)
+    cetakln("panjang = ", panjang(s))
+    cetakln("sama? ", s == "Nusa untuk Indonesia")
+    cetakln("urut? ", "abc" < "abd")
+    var kata: daftar<teks> = ["aman", "cepat", "sederhana"]
+    untuk k dalam kata {
+        cetak(k, " ")
+    }
+    cetakln("")
+    cetakln(kata)
+}

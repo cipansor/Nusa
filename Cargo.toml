@@ -1,0 +1,27 @@
+[package]
+name = "nusa"
+version = "0.1.0"
+edition = "2021"
+description = "Kompiler + interpreter bahasa Nusa (.ns) - bahasa Indonesia, aman memori, backend LLVM"
+license = "Apache-2.0"
+readme = "README.md"
+
+[lib]
+name = "nusa"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nusa"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0

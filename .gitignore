@@ -1,0 +1,6 @@
+/target/
+/bukti/
+*.o
+*.ll
+*.smt2
+/.openhands/
