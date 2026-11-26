@@ -1305,6 +1305,10 @@ fungsi utama() -> bil { kembali 0 }
     );
     let o = jalankan(&["bukti", f.to_str().unwrap()]);
     assert!(o.status.success(), "{}", teks_galat(&o));
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("[ok] uji"), "{gabung}");
+    assert!(gabung.contains("jamin (postcondition)"), "{gabung}");
+    assert!(gabung.contains("terbukti"), "{gabung}");
 
     let f = tulis(
         &d,
@@ -1321,6 +1325,8 @@ fungsi utama() -> bil { kembali 0 }
     let o = jalankan(&["bukti", f.to_str().unwrap()]);
     assert!(!o.status.success());
     let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("[!!] uji"), "{gabung}");
+    assert!(!gabung.contains("[lewat]"), "{gabung}");
     assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
 }
 
