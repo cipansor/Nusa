@@ -1305,6 +1305,23 @@ fungsi utama() -> bil { kembali 0 }
     );
     let o = jalankan(&["bukti", f.to_str().unwrap()]);
     assert!(o.status.success(), "{}", teks_galat(&o));
+
+    let f = tulis(
+        &d,
+        "berbeda.ns",
+        r#"
+fungsi uji(a: [bil; 300], b: [bil; 300]) -> bil
+    jamin a == b
+{
+    kembali 0
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
 }
 
 #[test]
