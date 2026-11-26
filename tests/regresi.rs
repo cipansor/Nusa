@@ -1035,7 +1035,7 @@ fungsi satu(x: bil) -> [bil; 1]
 }
 fungsi utama() -> bil {
     ub a: [bil; 1] = satu(7);
-    tegas salah
+    tegas benar
     kembali 0
 }
 "#,
@@ -1045,6 +1045,120 @@ fungsi utama() -> bil {
     let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
     assert!(gabung.contains("jamin (postcondition)"), "{gabung}");
     assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
+fn bukti_bayang_parameter_tidak_dipakai_di_jamin() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-bayang-parameter");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(x: bil) -> [bil; 1]
+    jamin hasil[0] == x
+{
+    tetap x: bil = 0;
+    kembali [x]
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("jamin (postcondition)"), "{gabung}");
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
+fn bukti_pjg_palsu_ditolak_dan_pjg_benar_diterima() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-pjg");
+    let f = tulis(
+        &d,
+        "palsu.ns",
+        r#"
+fungsi uji() -> [bil; 1]
+    jamin pjg(hasil) == 0
+{
+    kembali [7]
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("jamin (postcondition)"), "{gabung}");
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+
+    let f = tulis(
+        &d,
+        "benar.ns",
+        r#"
+fungsi uji() -> [bil; 1]
+    jamin pjg(hasil) == 1
+{
+    kembali [7]
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn bukti_kontrak_rekursif_dilewati_tanpa_crash() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-kontrak-rekursif");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi satu(x: bil) -> [bil; 1]
+    jamin panjang(satu(x)) == panjang(hasil)
+{
+    kembali [x]
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.code().is_some(), "verifier crashed");
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("rekursif"), "{gabung}");
+}
+
+#[test]
+fn bukti_jamin_larik_log_dapat_dibuktikan() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-larik-log");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(a: [log; 1]) -> [log; 1]
+    perlu a[0]
+    jamin hasil[0]
+{
+    kembali a
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
 }
 
 #[test]

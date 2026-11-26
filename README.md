@@ -365,9 +365,12 @@ irisan) diterjemahkan menjadi **kondisi verifikasi** (VC) dalam SMT-LIB2:
 * `jika`/`selain` memecah jalur (nilai digabung dengan `ite`);
 * loop di-*havoc*, lalu **invarian** dipakai sebagai asumsi masuk dan kewajiban
   keluar;
-* `kembali` memeriksa `jamin` (dengan `hasil` = nilai kembali);
+* `kembali` memeriksa `jamin` (dengan `hasil` = nilai kembali), termasuk
+  `jamin` yang menyebut panjang atau elemen hasil koleksi;
 * pemanggilan fungsi memeriksa `perlu` si pemanggil dan **mengasumsikan**
-  `jamin`-nya — jadi verifikasi bersifat modular dan rekursif.
+  `jamin` skalar. `jamin` hasil koleksi (`[T]`/`[T; N]`) belum diasumsikan di
+  pemanggil sampai ringkasan modular untuk koleksi tersedia; kontraknya tetap
+  diperiksa di `kembali` — jadi verifikasi tetap modular untuk skalar.
 
 Untuk setiap kewajiban, Nusa menanyakan `(assert (not (=> (and asumsi…) tugas)))`
 ke Z3:
@@ -499,12 +502,12 @@ dibangkitkan, tetap cepat karena `llc -O2`.
 ## 9. Uji
 
 ```bash
-cargo test                 # 45 uji regresi Rust (penafsir + biner bila LLVM ada)
+cargo test                 # 49 uji regresi Rust (penafsir + biner bila LLVM ada)
 ./uji/jalankan.sh          # uji ujung-ke-ujung + kesetaraan dua mesin
 ```
 
 ```
-test result: ok. 45 passed; 0 failed
+test result: ok. 49 passed; 0 failed
 ringkasan uji: 48 lulus, 0 gagal
 ```
 

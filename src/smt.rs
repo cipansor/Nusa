@@ -106,6 +106,9 @@ struct Vc<'a> {
     spek: bool,
     lewat: Option<String>,
     pulih: Vec<Vec<(String, Option<Nl>)>>,
+    bayang: Vec<HashSet<String>>,
+    param_nilai: HashMap<String, Nl>,
+    kontrak_aktif: Vec<String>,
 }
 
 pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
@@ -157,6 +160,9 @@ pub fn periksa(prog: &Prog, sema: &Sema, _berkas: &str) -> Laporan {
             spek: false,
             lewat: None,
             pulih: Vec::new(),
+            bayang: Vec::new(),
+            param_nilai: HashMap::new(),
+            kontrak_aktif: Vec::new(),
         };
         let hasil = vc.jalankan();
         if hasil.dilewati.is_some() {
@@ -197,12 +203,8 @@ fn boleh_verifikasi(t: &Ty) -> bool {
 fn sort(t: &Ty) -> &'static str {
     match t {
         Ty::Log => "Bool",
-        Ty::Array(d, _) => match &**d {
-            Ty::Log => "Bool",
-            _ => "(Array Int Int)",
-        },
-        Ty::Irisan(d) => match &**d {
-            Ty::Log => "Bool",
+        Ty::Array(d, _) | Ty::Irisan(d) => match &**d {
+            Ty::Log => "(Array Int Bool)",
             _ => "(Array Int Int)",
         },
         _ => "Int",
@@ -328,14 +330,13 @@ impl<'a> Vc<'a> {
             if let Some(d) = domain(&p.ty, &s) {
                 pc.push(d);
             }
-            env.insert(
-                p.nama.clone(),
-                Nl {
-                    term: s,
-                    ty: p.ty.clone(),
-                    panjang,
-                },
-            );
+            let nilai = Nl {
+                term: s,
+                ty: p.ty.clone(),
+                panjang,
+            };
+            env.insert(p.nama.clone(), nilai.clone());
+            self.param_nilai.insert(p.nama.clone(), nilai);
         }
         let mut j = Jalur {
             env,
@@ -369,6 +370,7 @@ impl<'a> Vc<'a> {
 
     fn blok(&mut self, b: &Block, j: &mut Jalur) {
         self.pulih.push(Vec::new());
+        self.bayang.push(HashSet::new());
         for s in &b.stmts {
             if !j.hidup {
                 break;
@@ -387,6 +389,7 @@ impl<'a> Vc<'a> {
                 }
             }
         }
+        self.bayang.pop();
     }
 
     fn stmt(&mut self, st: &Stmt, j: &mut Jalur) {
@@ -408,8 +411,18 @@ impl<'a> Vc<'a> {
                 } else if let Ty::Array(_, k) = &n.ty {
                     n.panjang = Some(k.to_string());
                 }
-                if let Some(lama) = self.pulih.last_mut() {
-                    lama.push((nama.clone(), j.env.get(nama).cloned()));
+                let lama = j.env.get(nama).cloned();
+                let sudah_bayang = self.bayang.iter().any(|f| f.contains(nama));
+                if !sudah_bayang && self.param_nilai.contains_key(nama) {
+                    if let Some(v) = lama.clone() {
+                        self.param_nilai.insert(nama.clone(), v);
+                    }
+                }
+                if let Some(frame) = self.pulih.last_mut() {
+                    frame.push((nama.clone(), lama));
+                }
+                if let Some(frame) = self.bayang.last_mut() {
+                    frame.insert(nama.clone());
                 }
                 j.env.insert(nama.clone(), n);
             }
@@ -624,20 +637,38 @@ impl<'a> Vc<'a> {
                     self.lengkapi_panjang(&mut n, j);
                     let jamin = self.fungsi.jamin.clone();
                     if !jamin.is_empty() {
-                        let mut jj = j.clone();
-                        jj.env.insert("hasil".into(), n.clone());
-                        let lama_spek = self.spek_mulai();
-                        for c in &jamin {
-                            let t = self.eks(c, &mut jj);
-                            let pc = jj.pc.clone();
-                            self.tugas(
-                                "jamin (postcondition) pada `kembali`".into(),
-                                e.span.baris,
-                                t.term,
-                                &pc,
-                            );
+                        let nama_fungsi = self.fungsi.nama.clone();
+                        if self.kontrak_aktif.contains(&nama_fungsi) {
+                            self.lewat = Some("kontrak rekursif belum dimodelkan".into());
+                        } else {
+                            self.kontrak_aktif.push(nama_fungsi);
+                            let mut jj = j.clone();
+                            jj.env.insert("hasil".into(), n.clone());
+                            for p in &self.fungsi.params {
+                                let tersembunyi = self.bayang.iter().any(|f| f.contains(&p.nama));
+                                let v = if tersembunyi {
+                                    self.param_nilai.get(&p.nama).cloned()
+                                } else {
+                                    j.env.get(&p.nama).cloned()
+                                };
+                                if let Some(v) = v {
+                                    jj.env.insert(p.nama.clone(), v);
+                                }
+                            }
+                            let lama_spek = self.spek_mulai();
+                            for c in &jamin {
+                                let t = self.eks(c, &mut jj);
+                                let pc = jj.pc.clone();
+                                self.tugas(
+                                    "jamin (postcondition) pada `kembali`".into(),
+                                    e.span.baris,
+                                    t.term,
+                                    &pc,
+                                );
+                            }
+                            self.spek_selesai(lama_spek);
+                            self.kontrak_aktif.pop();
                         }
-                        self.spek_selesai(lama_spek);
                     }
                     if !yg_bulat(&n.ty) && !bool_ty(&n.ty) {
                         j.hidup = false;
@@ -1060,7 +1091,8 @@ impl<'a> Vc<'a> {
     fn panggil_eks(&mut self, e: &Expr, nama: &str, args: &[Expr], j: &mut Jalur) -> Nl {
         let hasil_ty = self.sema.tipe.get(&e.id).cloned().unwrap_or(Ty::Kosong);
         let jenis = self.sema.panggil.get(&e.id).cloned();
-        if nama == "gagal" {
+        let kanonik = crate::sema::bawaan_kanonik(nama);
+        if kanonik == "gagal" {
             self.eks(&args[0], j);
             j.hidup = false;
             return Nl {
@@ -1070,7 +1102,7 @@ impl<'a> Vc<'a> {
             };
         }
         if let Some(Panggilan::Bawaan(_)) = jenis {
-            match nama {
+            match kanonik {
                 "panjang" => {
                     let a = self.eks(&args[0], j);
                     let l = self.panj(a);
@@ -1177,27 +1209,33 @@ impl<'a> Vc<'a> {
                 );
                 let perlu = f.perlu.clone();
                 let jamin = f.jamin.clone();
-                let lama_spek = self.spek_mulai();
-                for e in &perlu {
-                    let t = self.eks(e, &mut jj);
-                    let pc = jj.pc.clone();
-                    self.tugas(
-                        format!("prasyarat `{}` saat dipanggil", nama),
-                        e.span.baris,
-                        t.term,
-                        &pc,
-                    );
-                }
-                // Kontrak hasil koleksi belum dapat dipakai sebagai asumsi
-                // pemanggil; return verifier tetap memeriksanya.
-                let koleksi = matches!(hasil, Ty::Array(_, _) | Ty::Irisan(_));
-                for e in &jamin {
-                    let t = self.eks(e, &mut jj);
-                    if !koleksi {
-                        j.pc.push(t.term);
+                if self.kontrak_aktif.iter().any(|x| x == nama) {
+                    self.lewat = Some(format!("kontrak `{}` rekursif belum dimodelkan", nama));
+                } else {
+                    self.kontrak_aktif.push(nama.to_string());
+                    let lama_spek = self.spek_mulai();
+                    for e in &perlu {
+                        let t = self.eks(e, &mut jj);
+                        let pc = jj.pc.clone();
+                        self.tugas(
+                            format!("prasyarat `{}` saat dipanggil", nama),
+                            e.span.baris,
+                            t.term,
+                            &pc,
+                        );
                     }
+                    // Kontrak hasil koleksi belum dapat dipakai sebagai asumsi
+                    // pemanggil; return verifier tetap memeriksanya.
+                    let koleksi = matches!(hasil, Ty::Array(_, _) | Ty::Irisan(_));
+                    if !koleksi {
+                        for e in &jamin {
+                            let t = self.eks(e, &mut jj);
+                            j.pc.push(t.term);
+                        }
+                    }
+                    self.spek_selesai(lama_spek);
+                    self.kontrak_aktif.pop();
                 }
-                self.spek_selesai(lama_spek);
             }
         }
         Nl {
