@@ -1162,6 +1162,117 @@ fungsi utama() -> bil { kembali 0 }
 }
 
 #[test]
+fn bukti_parameter_hasil_tidak_dipakai_untuk_nilai_kembali() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-parameter-hasil");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(hasil: nat) -> bil
+    jamin hasil >= 0
+{
+    kembali -1
+}
+fungsi utama() -> bil {
+    ub a: bil = uji(0);
+    tegas a >= 0
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("`tegas` harus selalu benar"), "{gabung}");
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
+fn bukti_loop_binder_tidak_mengganti_parameter() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-loop-binder");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(x: bil) -> bil
+    jamin hasil == x
+{
+    untuk x dalam 0..1 {
+        {
+            tetap x: bil = 1;
+            kembali 0
+        }
+    }
+    kembali x
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("jamin (postcondition)"), "{gabung}");
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
+fn bukti_kesamaan_larik_log_memakai_batas_panjang() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-kesamaan-larik-log");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi uji(a: [log; 1], b: [log; 1], c: [log; 1]) -> bil
+    jamin a == b || a == c || b == c
+{
+    kembali 0
+}
+fungsi utama() -> bil { kembali 0 }
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", teks_galat(&o));
+}
+
+#[test]
+fn bukti_jamin_koleksi_tidak_diasumsikan_di_pemanggil() {
+    if !ada_z3() {
+        return;
+    }
+    let d = dir("bukti-batas-jamin-koleksi");
+    let f = tulis(
+        &d,
+        "program.ns",
+        r#"
+fungsi f() -> [bil; 1]
+    jamin hasil[0] == 7
+{
+    kembali [7]
+}
+fungsi utama() -> bil {
+    ub a: [bil; 1] = f();
+    tegas a[0] == 7
+    kembali 0
+}
+"#,
+    );
+    let o = jalankan(&["bukti", f.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let gabung = format!("{}{}", teks_keluar(&o), teks_galat(&o));
+    assert!(gabung.contains("[ok] f"), "{gabung}");
+    assert!(gabung.contains("TAK TERBUKTI"), "{gabung}");
+}
+
+#[test]
 fn bukti_panggilan_irisan_log_tidak_merusak_proof() {
     if !ada_z3() {
         return;

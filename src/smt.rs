@@ -271,6 +271,67 @@ impl<'a> Vc<'a> {
         }
     }
 
+    fn binder_mulai(&mut self, nama: &str, j: &Jalur) {
+        let sudah_bayang = self.bayang.iter().any(|f| f.contains(nama));
+        if !sudah_bayang && self.param_nilai.contains_key(nama) {
+            if let Some(v) = j.env.get(nama).cloned() {
+                self.param_nilai.insert(nama.to_string(), v);
+            }
+        }
+    }
+
+    fn binder_blok(&mut self, nama: &str, badan: &Block, j: &mut Jalur) {
+        self.bayang.push(HashSet::new());
+        if let Some(f) = self.bayang.last_mut() {
+            f.insert(nama.to_string());
+        }
+        self.blok(badan, j);
+        self.bayang.pop();
+    }
+
+    fn panjang_nl(&self, n: &Nl) -> String {
+        match &n.ty {
+            Ty::Array(_, k) => k.to_string(),
+            _ => self.panj(n.clone()),
+        }
+    }
+
+    fn sama_koleksi(&self, x: &Nl, y: &Nl) -> String {
+        let lx = self.panjang_nl(x);
+        let ly = self.panjang_nl(y);
+        let len = if lx == ly {
+            "true".to_string()
+        } else {
+            format!("(= {} {})", lx, ly)
+        };
+        let elems = match (lx.parse::<i128>().ok(), ly.parse::<i128>().ok()) {
+            (Some(n), Some(m)) if n == m && (0..=256).contains(&n) => {
+                let bagian: Vec<String> = (0..n)
+                    .map(|i| {
+                        format!(
+                            "(= (select {} {}) (select {} {}))",
+                            x.term, i, y.term, i
+                        )
+                    })
+                    .collect();
+                if bagian.is_empty() {
+                    "true".into()
+                } else {
+                    format!("(and {})", bagian.join(" "))
+                }
+            }
+            _ => format!(
+                "(forall ((__i Int)) (=> (and (<= 0 __i) (< __i {})) (= (select {} __i) (select {} __i))))",
+                lx, x.term, y.term
+            ),
+        };
+        if len == "true" {
+            elems
+        } else {
+            format!("(and {} {})", len, elems)
+        }
+    }
+
     fn tugas(&mut self, deskripsi: String, baris: u32, harus: String, asumsi: &[String]) {
         let skrip = self.skrip(&harus, asumsi);
         let (hasil, model) = jalankan_z3(&skrip);
@@ -552,6 +613,7 @@ impl<'a> Vc<'a> {
                 let mut h = j.clone();
                 h.pc.push(format!("(= {} {})", awal, a.term));
                 h.pc.push(format!("(= {} {})", akhir, b.term));
+                self.binder_mulai(nama, j);
                 let i_sym = self.segar(nama, &Ty::Bil);
                 h.env.insert(
                     nama.clone(),
@@ -577,7 +639,7 @@ impl<'a> Vc<'a> {
                     format!("(< {} {})", i_sym, akhir)
                 };
                 bj.pc.push(kond.clone());
-                self.blok(badan, &mut bj);
+                self.binder_blok(nama, badan, &mut bj);
                 for i in &inv {
                     self.tugas(
                         "invarian `untuk` dipertahankan".into(),
@@ -619,10 +681,11 @@ impl<'a> Vc<'a> {
                     ty: elemen(&w.ty),
                     panjang: None,
                 };
+                self.binder_mulai(nama, j);
                 h.env.insert(nama.clone(), el);
                 let mut bj = h.clone();
                 bj.pc.push(format!("(< {} {})", i_sym, len));
-                self.blok(badan, &mut bj);
+                self.binder_blok(nama, badan, &mut bj);
                 // Tidak ada kondisi indeks internal setelah loop. Badan
                 // di-havok; wadah tidak boleh berubah karena sema meminjamnya
                 // selama iterasi.
@@ -879,9 +942,24 @@ impl<'a> Vc<'a> {
                 },
             },
             ExprKind::Biner(op, a, b) => {
+                let x = self.eks(a, j);
+                let y = self.eks(b, j);
+                if matches!(op, BinOp::Sama | BinOp::TidakSama)
+                    && matches!(x.ty, Ty::Array(_, _) | Ty::Irisan(_))
+                    && matches!(y.ty, Ty::Array(_, _) | Ty::Irisan(_))
+                {
+                    let eq = self.sama_koleksi(&x, &y);
+                    return Nl {
+                        term: if *op == BinOp::TidakSama {
+                            format!("(not {})", eq)
+                        } else {
+                            eq
+                        },
+                        ty: Ty::Log,
+                        panjang: None,
+                    };
+                }
                 if bool_ty(&t) {
-                    let x = self.eks(a, j);
-                    let y = self.eks(b, j);
                     let ins = match op {
                         BinOp::Dan => "and",
                         BinOp::Atau => "or",
@@ -899,8 +977,6 @@ impl<'a> Vc<'a> {
                         panjang: None,
                     };
                 }
-                let x = self.eks(a, j);
-                let y = self.eks(b, j);
                 let pc = j.pc.clone();
                 match op {
                     BinOp::Tambah | BinOp::Kurang | BinOp::Kali => {
@@ -1168,11 +1244,7 @@ impl<'a> Vc<'a> {
                 .map(|p| if bool_ty(p) { "Bool" } else { "Int" })
                 .collect();
             let shasil = if bool_ty(&hasil) { "Bool" } else { "Int" };
-            let argsrt = if sargs.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", sargs.join(" "))
-            };
+            let argsrt = format!(" ({})", sargs.join(" "));
             self.decl
                 .push(format!("(declare-fun {}{} {})", fnama, argsrt, shasil));
         }
@@ -1199,14 +1271,16 @@ impl<'a> Vc<'a> {
                         },
                     );
                 }
-                jj.env.insert(
-                    "hasil".into(),
-                    Nl {
-                        term: res.clone(),
-                        ty: hasil.clone(),
-                        panjang: panjang_hasil.clone(),
-                    },
-                );
+                if !f.params.iter().any(|p| p.nama == "hasil") {
+                    jj.env.insert(
+                        "hasil".into(),
+                        Nl {
+                            term: res.clone(),
+                            ty: hasil.clone(),
+                            panjang: panjang_hasil.clone(),
+                        },
+                    );
+                }
                 let perlu = f.perlu.clone();
                 let jamin = f.jamin.clone();
                 if self.kontrak_aktif.iter().any(|x| x == nama) {
