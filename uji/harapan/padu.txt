@@ -1,0 +1,9 @@
+medan  = 3,4
+sama   = benar
+warna  = Hijau benar
+huruf  = a benar
+nat    = 7
+pecah  = 6 0.666667
+nilai  = 41
+daftar = 5 16
+teks   = nusa 4 u

@@ -1,0 +1,5 @@
+teks     = nusantara
+panjang  = 9
+huruf a  = 3
+sama?    = benar
+banding  = benar

@@ -1,0 +1,298 @@
+# Windows belum diikutkan: src/tmp.rs memakai std::os::unix, dan harness uji
+# membutuhkan bash, z3, serta LLVM/clang gaya POSIX.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "fitur/**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  lint:
+    name: Format dan Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          components: rustfmt, clippy
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Periksa format
+        run: cargo fmt --all -- --check
+      - name: Periksa metadata
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+  test:
+    name: Uji ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: ${{ matrix.os }}-stable
+      - name: Pasang z3 dan LLVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends z3 clang llvm
+      - name: Pasang z3 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install z3
+      - name: Verifikasi alat eksternal
+        shell: bash
+        run: |
+          set -euo pipefail
+          z3 --version
+          cc --version | head -n 1
+          if command -v llc-19 >/dev/null 2>&1; then
+            llc-19 --version | head -n 1
+          elif command -v llc-18 >/dev/null 2>&1; then
+            llc-18 --version | head -n 1
+          elif command -v llc >/dev/null 2>&1; then
+            llc --version | head -n 1
+          else
+            clang --version | head -n 1
+          fi
+      - name: Uji regresi Rust
+        run: cargo test --locked --all-targets -- --nocapture
+      - name: Bangun biner release
+        run: cargo build --release --locked
+      - name: Uji ujung-ke-ujung
+        env:
+          NUSA: ./target/release/nusa
+        run: ./uji/jalankan.sh
+
+  proof:
+    name: Verifikasi formal Z3
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: ubuntu-stable-proof
+      - name: Pasang z3 dan LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends z3 clang llvm
+      - name: Bangun biner release
+        run: cargo build --release --locked
+      - name: Uji regresi verifikasi
+        run: cargo test --locked bukti_ -- --nocapture
+      - name: Bukti contoh yang harus lulus
+        run: ./target/release/nusa bukti contoh/pencarian.ns
+      - name: Bukti contoh yang harus jujur gagal
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ./target/release/nusa bukti contoh/faktorial.ns > faktorial.out 2>&1; then
+            echo "faktorial.ns seharusnya melaporkan tugas tak terbukti" >&2
+            exit 1
+          fi
+          grep -q "1 tak terbukti" faktorial.out
+
+  coverage:
+    name: Cakupan kode
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust dengan llvm-tools
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          components: llvm-tools-preview
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: ubuntu-stable-coverage
+      - name: Pasang z3 dan LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends z3 clang llvm
+      - name: Pasang cargo-llvm-cov
+        uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83
+        with:
+          tool: cargo-llvm-cov
+      - name: Jalankan cakupan
+        run: cargo llvm-cov --locked --all-targets --lcov --output-path lcov.info
+      - name: Ringkasan cakupan
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+      - name: Simpan laporan cakupan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-${{ github.sha }}
+          path: |
+            lcov.info
+            coverage-summary.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # Dependency graph review tidak dipakai: repositori belum mengaktifkan
+  # dependency graph. Audit Cargo.lock tetap berjalan lewat cargo-audit.
+  audit:
+    name: Audit dependensi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - name: Pasang cargo-audit
+        uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83
+        with:
+          tool: cargo-audit
+      - name: Audit Cargo.lock
+        run: cargo audit
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Periksa skrip uji
+        run: |
+          bash -n uji/jalankan.sh
+          shellcheck -S error uji/jalankan.sh
+
+  docs:
+    name: Dokumentasi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Bangun dokumentasi
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
+
+  release:
+    name: Bangun artifact release
+    needs:
+      - lint
+      - test
+      - proof
+      - coverage
+      - audit
+      - shellcheck
+      - docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Pasang Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: ubuntu-stable-release
+      - name: Pasang z3 dan LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends z3 clang llvm
+      - name: Uji mode release
+        run: cargo test --locked --release --all-targets
+      - name: Bangun release
+        run: cargo build --release --locked
+      - name: Smoke test biner lokal
+        run: ./target/release/nusa bantuan > /dev/null
+      - name: Siapkan paket release
+        shell: bash
+        run: |
+          set -euo pipefail
+          paket="nusa-linux-${GITHUB_SHA}"
+          mkdir -p "release/${paket}"
+          install -m 0755 target/release/nusa "release/${paket}/nusa"
+          (
+            cd "release/${paket}"
+            sha256sum nusa > SHA256SUMS
+          )
+          tar -C release -czf "release/${paket}.tar.gz" "${paket}"
+          (
+            cd release
+            sha256sum "${paket}.tar.gz" > "${paket}.tar.gz.sha256"
+          )
+      - name: Verifikasi paket hasil ekstraksi
+        shell: bash
+        run: |
+          set -euo pipefail
+          paket="nusa-linux-${GITHUB_SHA}"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          (cd release && sha256sum -c "${paket}.tar.gz.sha256")
+          tar -xzf "release/${paket}.tar.gz" -C "$tmp"
+          test -x "$tmp/${paket}/nusa"
+          (
+            cd "$tmp/${paket}"
+            sha256sum -c SHA256SUMS
+            ./nusa bantuan > /dev/null
+          )
+      - name: Simpan artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nusa-linux-${{ github.sha }}
+          path: |
+            release/nusa-linux-${{ github.sha }}.tar.gz
+            release/nusa-linux-${{ github.sha }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30

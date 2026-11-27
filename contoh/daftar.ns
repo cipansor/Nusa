@@ -1,0 +1,19 @@
+// Daftar<T>: alokasi heap, dipindahkan (move), dibebaskan otomatis.
+fungsi jumlahkan(d: Daftar<bil>) -> bil {
+    ubah total: bil = 0;
+    untuk x dalam d {
+        total = total + x
+    }
+    kembali total
+}
+
+fungsi utama() -> bil {
+    ubah d: Daftar<bil> = daftar();
+    untuk i dalam 0..10 {
+        tambah(&ubah d, i * i)
+    }
+    cetak("panjang = ", panjang(d))
+    cetak("isi[3]  = ", ambil(d, 3))
+    cetak("jumlah  = ", jumlahkan(d))
+    kembali 0
+}

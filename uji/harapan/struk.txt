@@ -1,0 +1,3 @@
+posisi = 1, 1
+sama?  = benar
+arah   = Timur

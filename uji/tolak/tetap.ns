@@ -1,0 +1,6 @@
+// Harus DITOLAK: menulis ke variabel tetap.
+fungsi utama() -> bil {
+    tetap x: bil = 1;
+    x = 2               // E0306
+    kembali x
+}

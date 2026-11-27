@@ -1,0 +1,43 @@
+// Tolok ukur: hitung bilangan prima < n (percobaan bagi).
+fungsi prima(n: bil) -> log
+    perlu n <= 100000000
+{
+    jika n < 2 {
+        kembali salah
+    }
+    ubah i: bil = 2;
+    selama i * i <= n
+        invarian i >= 2
+        invarian i <= 10001
+    {
+        jika n % i == 0 {
+            kembali salah
+        }
+        i = i + 1
+    }
+    kembali benar
+}
+
+fungsi hitung(n: bil) -> bil
+    perlu n >= 0
+    perlu n <= 100000000
+{
+    ubah c: bil = 0;
+    ubah k: bil = 2;
+    selama k < n
+        invarian k >= 2
+        invarian c >= 0
+        invarian c <= k
+    {
+        jika prima(k) {
+            c = c + 1
+        }
+        k = k + 1
+    }
+    kembali c
+}
+
+fungsi utama() -> bil {
+    cetak(hitung(200000))
+    kembali 0
+}

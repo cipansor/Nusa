@@ -1,0 +1,19 @@
+[package]
+name = "nusa"
+version = "0.1.0"
+edition = "2021"
+description = "Kompiler & penafsir bahasa Nusa: aman memori, aman tipe, cepat, dapat diverifikasi formal"
+license = "Apache-2.0"
+
+[[bin]]
+name = "nusa"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

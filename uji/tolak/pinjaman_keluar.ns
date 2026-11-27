@@ -1,0 +1,7 @@
+// Harus DITOLAK: mengembalikan pinjaman lokal (referensi menggantung).
+fungsi rusak() -> &bil {
+    tetap x: bil = 5;
+    kembali &x          // E0371
+}
+
+fungsi utama() -> bil { kembali 0 }

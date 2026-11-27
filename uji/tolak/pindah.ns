@@ -1,0 +1,10 @@
+// Harus DITOLAK: memakai nilai yang sudah dipindahkan.
+fungsi pakai(d: Daftar<bil>) -> bil { kembali panjang(d) }
+
+fungsi utama() -> bil {
+    ubah d: Daftar<bil> = daftar();
+    tambah(&ubah d, 1)
+    cetak(pakai(d))
+    cetak(panjang(d))   // E0320: d sudah dipindahkan
+    kembali 0
+}

@@ -1,0 +1,5 @@
+// Harus DITOLAK: `daftar()` tanpa anotasi tipe.
+fungsi utama() -> bil {
+    ubah d = daftar();
+    kembali 0
+}
